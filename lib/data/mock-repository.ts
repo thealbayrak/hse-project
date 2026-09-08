@@ -1,0 +1,121 @@
+import { computeMetrics, sortIncidents } from "@/lib/data/metrics";
+import type { IncidentRepository } from "@/lib/data/repository";
+import { SEED_INCIDENTS } from "@/lib/data/seed-incidents";
+import { SEED_SAFETY_WALKS } from "@/lib/data/seed-walks";
+import { findLocation, findSite, SITES } from "@/lib/data/sites";
+import { toSafetyWalkSummary } from "@/lib/supabase/mappers";
+import type { CreateIncidentInput, CreateSafetyWalkInput, Incident, SafetyWalk, UpdateCapaInput } from "@/lib/types";
+
+function withPlaceNames(incident: Incident): Incident {
+  return {
+    ...incident,
+    siteName: incident.siteName ?? findSite(incident.siteId)?.name ?? incident.siteId,
+    locationName:
+      incident.locationName ??
+      findLocation(incident.siteId, incident.locationId)?.name ??
+      incident.locationId,
+  };
+}
+
+function cloneIncidents(): Incident[] {
+  return structuredClone(SEED_INCIDENTS);
+}
+
+function nextReference(incidents: Incident[]): string {
+  const year = new Date().getFullYear();
+  const max = incidents.reduce((highest, incident) => {
+    const match = incident.reference.match(/SS-\d{4}-(\d+)/);
+    const n = match ? Number(match[1]) : 0;
+    return Math.max(highest, n);
+  }, 0);
+  return `SS-${year}-${String(max + 1).padStart(4, "0")}`;
+}
+
+export function createMockRepository(): IncidentRepository {
+  let incidents = cloneIncidents();
+  let walks: SafetyWalk[] = structuredClone(SEED_SAFETY_WALKS);
+
+  return {
+    async listSites() {
+      return structuredClone(SITES);
+    },
+
+    async listIncidents() {
+      return sortIncidents(structuredClone(incidents)).map(withPlaceNames);
+    },
+
+    async getIncident(id) {
+      const found = incidents.find((incident) => incident.id === id);
+      return found ? withPlaceNames(structuredClone(found)) : null;
+    },
+
+    async createIncident(input: CreateIncidentInput) {
+      const { photoFiles: _photos, audioFile: _audio, ...fields } = input;
+      const created: Incident = {
+        id: `inc-${crypto.randomUUID().slice(0, 8)}`,
+        reference: nextReference(incidents),
+        ...fields,
+        status: "open",
+        createdAt: new Date().toISOString(),
+        capa: null,
+      };
+      incidents = [created, ...incidents];
+      return withPlaceNames(structuredClone(created));
+    },
+
+    async updateCapa(incidentId, capa: UpdateCapaInput) {
+      const index = incidents.findIndex((incident) => incident.id === incidentId);
+      if (index === -1) {
+        throw new Error(`Incident ${incidentId} not found`);
+      }
+
+      const updated: Incident = {
+        ...incidents[index],
+        status: capa.status,
+        capa: {
+          ...capa,
+          updatedAt: new Date().toISOString(),
+        },
+      };
+      incidents[index] = updated;
+      return withPlaceNames(structuredClone(updated));
+    },
+
+    async getMetrics() {
+      return computeMetrics(incidents);
+    },
+
+    async getLatestSafetyWalk() {
+      const latest = [...walks].sort((a, b) => +new Date(b.completedAt) - +new Date(a.completedAt))[0];
+      return latest ? toSafetyWalkSummary(latest) : null;
+    },
+
+    async createSafetyWalk(input: CreateSafetyWalkInput) {
+      const site = findSite(input.siteId);
+      const walkId = `walk-${crypto.randomUUID().slice(0, 8)}`;
+      const created: SafetyWalk = {
+        id: walkId,
+        title: input.title,
+        siteId: input.siteId,
+        siteName: site?.name,
+        skyddsombudName: input.skyddsombudName,
+        skyddsombudRole: input.skyddsombudRole,
+        completedAt: new Date().toISOString(),
+        items: input.items.map((item, index) => ({
+          id: `${walkId}-${item.itemKey}`,
+          walkId,
+          itemKey: item.itemKey,
+          domain: item.domain,
+          title: item.title,
+          status: item.status,
+          notes: item.notes,
+          photoUrl: item.photoFile ? URL.createObjectURL(item.photoFile) : null,
+          sortOrder: item.sortOrder ?? index,
+          actionStatus: item.status === "deviation" ? "pending" : null,
+        })),
+      };
+      walks = [created, ...walks];
+      return structuredClone(created);
+    },
+  };
+}
