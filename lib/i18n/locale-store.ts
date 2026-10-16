@@ -36,8 +36,17 @@ export function getLocaleSnapshot(): Locale {
 
 export function subscribeLocale(listener: () => void) {
   listeners.add(listener);
+  // Another tab switching the language updates this one too.
+  const onStorage = (event: StorageEvent) => {
+    if (event.key === STORAGE_KEY && isLocale(event.newValue) && event.newValue !== current) {
+      current = event.newValue;
+      listeners.forEach((fn) => fn());
+    }
+  };
+  window.addEventListener("storage", onStorage);
   return () => {
     listeners.delete(listener);
+    window.removeEventListener("storage", onStorage);
   };
 }
 

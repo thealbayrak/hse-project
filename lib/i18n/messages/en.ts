@@ -12,6 +12,12 @@ export const en = {
     light: "Light",
     dark: "Dark",
   },
+  officerRoles: {
+    "safety-officer": "Safety Officer",
+    "hse-manager": "HSE Manager",
+    "site-supervisor": "Site Supervisor",
+    "production-lead": "Production Lead",
+  },
   roles: {
     worker: "I work on site",
     workerHint: "Report a near-miss, hazard, or accident",
@@ -143,6 +149,7 @@ export const en = {
     reporter: "Reporter",
     description: "Description",
     anonymousPerson: "Anonymous",
+    siteWorker: "Site worker",
     received: "Report received",
     thankYou: "Thank you. Your report helps keep this site safe.",
     loadingSites: "Loading sites…",

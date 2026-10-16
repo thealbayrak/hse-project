@@ -249,7 +249,7 @@ export function SkyddsrondWizard({
                 type="button"
                 onClick={() => {
                   setSkyddsombudName(officer.name);
-                  setSkyddsombudRole(officer.role);
+                  setSkyddsombudRole(t(`officerRoles.${officer.roleKey}`));
                 }}
                 className={cn(
                   "min-h-11 rounded-full border px-3 text-sm",

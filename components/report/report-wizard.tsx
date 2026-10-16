@@ -492,7 +492,7 @@ export function ReportWizard() {
           </div>
           <ReviewRow
             label={t("report.reporter")}
-            value={draft.anonymous ? t("report.anonymousPerson") : DEFAULT_REPORTER_NAME}
+            value={draft.anonymous ? t("report.anonymousPerson") : t("report.siteWorker")}
           />
           <div className="rounded-xl border border-border bg-card px-4 py-3">
             <p className="text-sm text-muted-foreground">{t("report.description")}</p>

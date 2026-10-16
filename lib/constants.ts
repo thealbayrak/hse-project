@@ -70,10 +70,10 @@ export const INCIDENT_STATUSES: {
 ];
 
 export const SAFETY_OFFICERS = [
-  { id: "off-erik", name: "Erik Lindqvist", role: "Safety Officer" },
-  { id: "off-anna", name: "Anna Bergström", role: "HSE Manager" },
-  { id: "off-johan", name: "Johan Ek", role: "Site Supervisor" },
-  { id: "off-maria", name: "Maria Holm", role: "Production Lead" },
+  { id: "off-erik", name: "Erik Lindqvist", role: "Safety Officer", roleKey: "safety-officer" },
+  { id: "off-anna", name: "Anna Bergström", role: "HSE Manager", roleKey: "hse-manager" },
+  { id: "off-johan", name: "Johan Ek", role: "Site Supervisor", roleKey: "site-supervisor" },
+  { id: "off-maria", name: "Maria Holm", role: "Production Lead", roleKey: "production-lead" },
 ] as const;
 
 export const DEFAULT_REPORTER_NAME = "Site worker";

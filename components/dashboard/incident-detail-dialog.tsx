@@ -16,7 +16,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { INCIDENT_STATUSES, SAFETY_OFFICERS, SEVERITY_LEVELS } from "@/lib/constants";
+import { DEFAULT_REPORTER_NAME, INCIDENT_STATUSES, SAFETY_OFFICERS, SEVERITY_LEVELS } from "@/lib/constants";
 import {
   categoryLabel,
   formatDateTime,
@@ -109,7 +109,11 @@ function IncidentDetail({ incident, onClose }: { incident: Incident; onClose: ()
           {categoryLabel(incident.category, locale)}
         </span>
         <span className="rounded-full border border-border px-2.5 py-1 text-xs">
-          {incident.anonymous ? t("report.anonymousPerson") : incident.reporterName}
+          {incident.anonymous
+            ? t("report.anonymousPerson")
+            : incident.reporterName === DEFAULT_REPORTER_NAME
+              ? t("report.siteWorker")
+              : incident.reporterName}
         </span>
       </div>
 
@@ -193,7 +197,7 @@ function IncidentDetail({ incident, onClose }: { incident: Incident; onClose: ()
                   )}
                 >
                   <span className="block text-sm font-medium">{officer.name}</span>
-                  <span className="text-xs text-muted-foreground">{officer.role}</span>
+                  <span className="text-xs text-muted-foreground">{t(`officerRoles.${officer.roleKey}`)}</span>
                 </button>
               ))}
             </div>

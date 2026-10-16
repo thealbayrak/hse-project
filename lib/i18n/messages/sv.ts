@@ -14,6 +14,12 @@ export const sv: MessageTable = {
     light: "Ljust",
     dark: "Mörkt",
   },
+  officerRoles: {
+    "safety-officer": "Skyddsansvarig",
+    "hse-manager": "Arbetsmiljöchef",
+    "site-supervisor": "Platschef",
+    "production-lead": "Produktionsledare",
+  },
   roles: {
     worker: "Jag arbetar på plats",
     workerHint: "Rapportera tillbud, risk eller olycksfall",
@@ -144,6 +150,7 @@ export const sv: MessageTable = {
     reporter: "Rapportör",
     description: "Beskrivning",
     anonymousPerson: "Anonym",
+    siteWorker: "Medarbetare på plats",
     received: "Rapporten är mottagen",
     thankYou: "Tack. Din rapport hjälper oss att hålla arbetsplatsen säker.",
     loadingSites: "Hämtar arbetsställen…",

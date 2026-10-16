@@ -14,6 +14,12 @@ export const tr: MessageTable = {
     light: "Açık",
     dark: "Koyu",
   },
+  officerRoles: {
+    "safety-officer": "İş güvenliği sorumlusu",
+    "hse-manager": "İSG müdürü",
+    "site-supervisor": "Şantiye şefi",
+    "production-lead": "Üretim lideri",
+  },
   roles: {
     worker: "Sahada çalışıyorum",
     workerHint: "Ramak kala, tehlike veya kaza bildir",
@@ -144,6 +150,7 @@ export const tr: MessageTable = {
     reporter: "Bildiren",
     description: "Açıklama",
     anonymousPerson: "Anonim",
+    siteWorker: "Saha çalışanı",
     received: "Bildirim alındı",
     thankYou: "Teşekkürler. Bildiriminiz bu şantiyeyi daha güvenli kılıyor.",
     loadingSites: "Şantiyeler yükleniyor…",
