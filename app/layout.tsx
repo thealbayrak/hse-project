@@ -1,8 +1,10 @@
 import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
+import { cookies, headers } from "next/headers";
 import { IosStartupImages } from "@/components/ios-startup-images";
 import { PWAInstallBanner } from "@/components/PWAInstallBanner";
 import { Providers } from "@/components/providers";
+import { STORAGE_KEY, isLocale, localeFromBrowser } from "@/lib/i18n/translations";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -53,10 +55,21 @@ export const viewport: Viewport = {
   colorScheme: "dark",
 };
 
-export default function RootLayout({ children }: LayoutProps<"/">) {
+/** The language chosen in the app (cookie), else the browser's Accept-Language. */
+async function resolveInitialLocale() {
+  const cookieStore = await cookies();
+  const fromCookie = cookieStore.get(STORAGE_KEY)?.value;
+  if (isLocale(fromCookie)) return fromCookie;
+  const headerList = await headers();
+  return localeFromBrowser(headerList.get("accept-language") ?? "");
+}
+
+export default async function RootLayout({ children }: LayoutProps<"/">) {
+  const initialLocale = await resolveInitialLocale();
+
   return (
     <html
-      lang="en"
+      lang={initialLocale}
       suppressHydrationWarning
       className={`${geistSans.variable} ${geistMono.variable} dark h-full antialiased`}
     >
@@ -64,7 +77,7 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
         <IosStartupImages />
       </head>
       <body className="flex min-h-full min-h-dvh flex-col font-sans">
-        <Providers>
+        <Providers initialLocale={initialLocale}>
           {children}
           <PWAInstallBanner />
         </Providers>

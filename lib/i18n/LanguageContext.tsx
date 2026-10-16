@@ -1,12 +1,7 @@
 "use client";
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useSyncExternalStore } from "react";
-import {
-  getLocaleSnapshot,
-  getServerLocaleSnapshot,
-  setStoredLocale,
-  subscribeLocale,
-} from "@/lib/i18n/locale-store";
+import { getLocaleSnapshot, setStoredLocale, subscribeLocale } from "@/lib/i18n/locale-store";
 import { translate, type Locale } from "@/lib/i18n/translations";
 
 type Vars = Record<string, string | number>;
@@ -19,8 +14,16 @@ interface LanguageContextValue {
 
 const LanguageContext = createContext<LanguageContextValue | null>(null);
 
-export function LanguageProvider({ children }: { children: React.ReactNode }) {
-  const locale = useSyncExternalStore(subscribeLocale, getLocaleSnapshot, getServerLocaleSnapshot);
+export function LanguageProvider({
+  initialLocale = "en",
+  children,
+}: {
+  /** Locale the server rendered with (cookie or Accept-Language); see app/layout.tsx. */
+  initialLocale?: Locale;
+  children: React.ReactNode;
+}) {
+  const getServerSnapshot = useCallback(() => initialLocale, [initialLocale]);
+  const locale = useSyncExternalStore(subscribeLocale, getLocaleSnapshot, getServerSnapshot);
 
   useEffect(() => {
     document.documentElement.lang = locale;

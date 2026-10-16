@@ -5,6 +5,7 @@ import { Toaster } from "@/components/ui/sonner";
 import { useIosViewport } from "@/hooks/use-ios-viewport";
 import { AuthProvider } from "@/lib/auth/auth-context";
 import { LanguageProvider } from "@/lib/i18n/LanguageContext";
+import type { Locale } from "@/lib/i18n/translations";
 import { IncidentProvider } from "@/lib/store/incident-store";
 
 function IosViewportSync() {
@@ -12,10 +13,10 @@ function IosViewportSync() {
   return null;
 }
 
-export function Providers({ children }: { children: React.ReactNode }) {
+export function Providers({ initialLocale, children }: { initialLocale: Locale; children: React.ReactNode }) {
   return (
     <ThemeProvider attribute="class" defaultTheme="dark" forcedTheme="dark">
-      <LanguageProvider>
+      <LanguageProvider initialLocale={initialLocale}>
         <AuthProvider>
           <IncidentProvider>
             <IosViewportSync />
