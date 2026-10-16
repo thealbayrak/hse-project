@@ -49,6 +49,16 @@ export interface Incident {
   description: string;
   mediaUrls: string[];
   audioUrl?: string | null;
+  /** ISO 639-1 code of the language the worker reported in (set by the assistant). */
+  originalLanguage?: string | null;
+  /** The worker's own words when the description was summarised. */
+  originalText?: string | null;
+  /** Neutral Swedish summary for the safety organisation. */
+  summarySv?: string | null;
+  /** Code the reporter uses on /track; only returned to the reporter at creation. */
+  trackingCode?: string | null;
+  /** Officer's note that the reporter can read on /track. */
+  publicNote?: string | null;
   anonymous: boolean;
   reporterName: string | null;
   status: IncidentStatus;
@@ -71,6 +81,22 @@ export interface CreateIncidentInput {
   audioFile?: Blob | null;
   anonymous: boolean;
   reporterName: string | null;
+  originalLanguage?: string | null;
+  originalText?: string | null;
+  summarySv?: string | null;
+  aiConfidence?: number | null;
+}
+
+/** What a reporter sees on /track with their code. */
+export interface TrackedIncident {
+  reference: string;
+  status: IncidentStatus;
+  severity: Severity;
+  createdAt: string;
+  updatedAt: string | null;
+  hasOwner: boolean;
+  dueDate: string | null;
+  publicNote: string | null;
 }
 
 export interface UpdateCapaInput {
@@ -81,6 +107,8 @@ export interface UpdateCapaInput {
   notes: string;
   /** Optional correction of the reporter-derived severity by the safety officer. */
   severity?: Severity;
+  /** Short message the reporter can read on /track. */
+  publicNote?: string;
 }
 
 export interface DashboardMetrics {

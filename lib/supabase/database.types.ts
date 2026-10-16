@@ -81,6 +81,12 @@ export interface Database {
           is_anonymous: boolean;
           reporter_name: string | null;
           alert_sent_at: string | null;
+          original_language: string | null;
+          original_text: string | null;
+          summary_sv: string | null;
+          ai_confidence: number | null;
+          tracking_code: string | null;
+          public_note: string | null;
           created_at: string;
           updated_at: string | null;
         };
@@ -100,6 +106,12 @@ export interface Database {
           is_anonymous?: boolean;
           reporter_name?: string | null;
           alert_sent_at?: string | null;
+          original_language?: string | null;
+          original_text?: string | null;
+          summary_sv?: string | null;
+          ai_confidence?: number | null;
+          tracking_code?: string | null;
+          public_note?: string | null;
           created_at?: string;
           updated_at?: string | null;
         };
@@ -227,8 +239,25 @@ export interface Database {
           p_is_anonymous: boolean;
           p_reporter_name: string | null;
           p_attachments: Json;
+          p_original_language?: string | null;
+          p_original_text?: string | null;
+          p_summary_sv?: string | null;
+          p_ai_confidence?: number | null;
         };
-        Returns: { id: string; reference: string; created_at: string }[];
+        Returns: { id: string; reference: string; created_at: string; tracking_code: string | null }[];
+      };
+      track_incident: {
+        Args: { p_code: string };
+        Returns: {
+          reference: string;
+          status: string;
+          severity: string;
+          created_at: string;
+          updated_at: string | null;
+          has_owner: boolean;
+          due_date: string | null;
+          public_note: string | null;
+        }[];
       };
       claim_incident_alert: {
         Args: { p_id: string };

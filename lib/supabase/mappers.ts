@@ -21,6 +21,7 @@ import type {
   SafetyWalkSummary,
   Severity,
   Site,
+  TrackedIncident,
 } from "@/lib/types";
 
 type Nested<T> = T | T[] | null | undefined;
@@ -135,6 +136,11 @@ export function mapIncident(row: IncidentQueryRow, mediaUrl: MediaUrlResolver = 
       .map((item) => mediaUrl(item.storage_path))
       .filter((url): url is string => Boolean(url)),
     audioUrl: voice ? mediaUrl(voice.storage_path) : null,
+    originalLanguage: row.original_language ?? null,
+    originalText: row.original_text ?? null,
+    summarySv: row.summary_sv ?? null,
+    trackingCode: row.tracking_code ?? null,
+    publicNote: row.public_note ?? null,
     anonymous: Boolean(row.is_anonymous),
     reporterName: row.reporter_name,
     status: mapStatus(row.status),
@@ -164,6 +170,28 @@ export function mapSite(row: SiteQueryRow): Site {
     organizationNumber: org?.organization_number || undefined,
     organizationName: org?.name,
     locations: locations.length ? locations : [{ id: row.id, name: row.name }],
+  };
+}
+
+export function mapTracked(row: {
+  reference: string;
+  status: string;
+  severity: string;
+  created_at: string;
+  updated_at: string | null;
+  has_owner: boolean;
+  due_date: string | null;
+  public_note: string | null;
+}): TrackedIncident {
+  return {
+    reference: row.reference,
+    status: mapStatus(row.status),
+    severity: mapSeverity(row.severity),
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+    hasOwner: Boolean(row.has_owner),
+    dueDate: row.due_date,
+    publicNote: row.public_note,
   };
 }
 

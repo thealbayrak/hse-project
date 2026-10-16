@@ -6,6 +6,7 @@ import type {
   SafetyWalk,
   SafetyWalkSummary,
   Site,
+  TrackedIncident,
   UpdateCapaInput,
 } from "@/lib/types";
 
@@ -29,5 +30,7 @@ export interface IncidentRepository {
   getMetrics(): Promise<DashboardMetrics>;
   getLatestSafetyWalk(): Promise<SafetyWalkSummary | null>;
   createSafetyWalk(input: CreateSafetyWalkInput): Promise<SafetyWalk>;
+  /** Public lookup by tracking code; works without a session. */
+  trackIncident(code: string): Promise<TrackedIncident | null>;
   subscribeToIncidents?(handler: RealtimeIncidentHandler): () => void;
 }

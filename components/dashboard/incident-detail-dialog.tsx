@@ -4,6 +4,7 @@ import { useState } from "react";
 import { FileText } from "lucide-react";
 import { toast } from "sonner";
 import { AmlNoticeDialog } from "@/components/dashboard/aml-notice-dialog";
+import { languageName } from "@/lib/ai/client";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -59,6 +60,7 @@ function IncidentDetail({ incident, onClose }: { incident: Incident; onClose: ()
   const [status, setStatus] = useState<IncidentStatus>(() => incident.capa?.status ?? incident.status);
   const [severity, setSeverity] = useState<Severity>(incident.severity);
   const [notes, setNotes] = useState(() => incident.capa?.notes ?? "");
+  const [publicNote, setPublicNote] = useState(() => incident.publicNote ?? "");
   const [saving, setSaving] = useState(false);
   const [amlOpen, setAmlOpen] = useState(false);
   const site = sites.find((item) => item.id === incident.siteId) ?? null;
@@ -78,6 +80,7 @@ function IncidentDetail({ incident, onClose }: { incident: Incident; onClose: ()
         status,
         notes: notes.trim(),
         severity: severity !== incident.severity ? severity : undefined,
+        publicNote: publicNote.trim() !== (incident.publicNote ?? "") ? publicNote : undefined,
       });
       toast.success(t("toast.capaSaved"));
       onClose();
@@ -117,7 +120,23 @@ function IncidentDetail({ incident, onClose }: { incident: Incident; onClose: ()
         </span>
       </div>
 
-      <p className="text-sm leading-relaxed whitespace-pre-line">{incident.description}</p>
+      {incident.summarySv ? (
+        <div className="space-y-3">
+          <div className="rounded-xl border border-border bg-secondary/40 px-4 py-3">
+            <p className="text-[11px] font-semibold tracking-wide text-muted-foreground uppercase">{t("ai.summaryTitle")}</p>
+            <p className="mt-1 text-sm leading-relaxed">{incident.summarySv}</p>
+          </div>
+          <details className="rounded-xl border border-border px-4 py-3">
+            <summary className="cursor-pointer text-sm font-medium">
+              {t("ai.originalTitle")}
+              {incident.originalLanguage ? ` · ${languageName(incident.originalLanguage, locale)}` : ""}
+            </summary>
+            <p className="mt-2 text-sm leading-relaxed whitespace-pre-line">{incident.originalText || incident.description}</p>
+          </details>
+        </div>
+      ) : (
+        <p className="text-sm leading-relaxed whitespace-pre-line">{incident.description}</p>
+      )}
       <p className="text-xs text-muted-foreground">
         {t("dashboard.reported", { when: formatDateTime(incident.createdAt, locale) })}
       </p>
@@ -240,6 +259,16 @@ function IncidentDetail({ incident, onClose }: { incident: Incident; onClose: ()
               onChange={(event) => setNotes(event.target.value)}
               placeholder={t("dashboard.actionNotesHint")}
               className="min-h-24"
+            />
+          </div>
+          <div className="space-y-2 sm:col-span-2">
+            <Label htmlFor="public-note">{t("dashboard.noteToReporter")}</Label>
+            <Textarea
+              id="public-note"
+              value={publicNote}
+              onChange={(event) => setPublicNote(event.target.value)}
+              placeholder={t("dashboard.noteToReporterHint")}
+              className="min-h-20"
             />
           </div>
         </div>

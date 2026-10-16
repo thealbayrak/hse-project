@@ -32,6 +32,12 @@ const baseIncident: IncidentQueryRow = {
   is_anonymous: true,
   reporter_name: null,
   alert_sent_at: null,
+  original_language: "pl",
+  original_text: "Paleta prawie spadła.",
+  summary_sv: "En pall höll på att falla.",
+  ai_confidence: 0.8,
+  tracking_code: "K7FP-3M2X",
+  public_note: null,
   created_at: "2026-09-08T07:40:00.000Z",
   updated_at: null,
   sites: { id: "site-1", name: "Torslanda", city: "Gothenburg" },
@@ -109,6 +115,9 @@ describe("mapIncident", () => {
     expect(incident.mediaUrls).toEqual(["https://cdn/incidents/x/photo-1.jpg?sig"]);
     expect(incident.audioUrl).toBe("https://cdn/incidents/x/voice-1.m4a?sig");
     expect(incident.source).toBe("report");
+    expect(incident.originalLanguage).toBe("pl");
+    expect(incident.summarySv).toBe("En pall höll på att falla.");
+    expect(incident.trackingCode).toBe("K7FP-3M2X");
   });
 
   it("drops media the resolver cannot sign and falls back to the text location", () => {

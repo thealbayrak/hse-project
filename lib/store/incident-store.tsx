@@ -41,6 +41,7 @@ import type {
   SafetyWalk,
   SafetyWalkSummary,
   Site,
+  TrackedIncident,
   UpdateCapaInput,
 } from "@/lib/types";
 
@@ -60,6 +61,7 @@ interface IncidentStoreValue {
   createIncident: (input: CreateIncidentInput) => Promise<Incident>;
   updateCapa: (incidentId: string, capa: UpdateCapaInput) => Promise<Incident>;
   createSafetyWalk: (input: CreateSafetyWalkInput) => Promise<SafetyWalk>;
+  trackIncident: (code: string) => Promise<TrackedIncident | null>;
   refresh: () => Promise<void>;
   syncQueuedReports: () => Promise<void>;
 }
@@ -284,6 +286,8 @@ export function IncidentProvider({ children }: { children: React.ReactNode }) {
     [refresh, repository]
   );
 
+  const trackIncident = useCallback((code: string) => repository.trackIncident(code), [repository]);
+
   const value = useMemo(
     () => ({
       incidents,
@@ -299,6 +303,7 @@ export function IncidentProvider({ children }: { children: React.ReactNode }) {
       createIncident,
       updateCapa,
       createSafetyWalk,
+      trackIncident,
       refresh,
       syncQueuedReports,
     }),
@@ -315,6 +320,7 @@ export function IncidentProvider({ children }: { children: React.ReactNode }) {
       createIncident,
       updateCapa,
       createSafetyWalk,
+      trackIncident,
       refresh,
       syncQueuedReports,
     ]

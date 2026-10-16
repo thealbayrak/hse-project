@@ -30,6 +30,22 @@ export function nextReference(incidents: Pick<Incident, "reference">[], year = n
   return `SS-${year}-${String(max + 1).padStart(4, "0")}`;
 }
 
+const CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+
+/** Same shape as the database trigger: K7FP-3M2X. */
+export function generateTrackingCode(random: () => number = Math.random) {
+  let code = "";
+  for (let i = 0; i < 8; i += 1) {
+    code += CODE_ALPHABET[Math.floor(random() * CODE_ALPHABET.length)];
+    if (i === 3) code += "-";
+  }
+  return code;
+}
+
+export function normalizeTrackingCode(code: string) {
+  return code.trim().toUpperCase().replaceAll(/\s+/g, "");
+}
+
 function objectUrl(blob: Blob | null | undefined) {
   if (!blob || blob.size === 0 || typeof URL?.createObjectURL !== "function") return null;
   return URL.createObjectURL(blob);
@@ -66,6 +82,11 @@ export function createMockRepository(): IncidentRepository {
         description: input.description,
         mediaUrls: input.mediaUrls,
         audioUrl: objectUrl(input.audioFile),
+        originalLanguage: input.originalLanguage ?? null,
+        originalText: input.originalText ?? null,
+        summarySv: input.summarySv ?? null,
+        trackingCode: generateTrackingCode(),
+        publicNote: null,
         anonymous: input.anonymous,
         reporterName: input.anonymous ? null : input.reporterName,
         status: "open",
@@ -83,11 +104,12 @@ export function createMockRepository(): IncidentRepository {
         throw new Error(`Incident ${incidentId} not found`);
       }
 
-      const { severity, ...capaFields } = capa;
+      const { severity, publicNote, ...capaFields } = capa;
       const updated: Incident = {
         ...incidents[index],
         status: capa.status,
         severity: severity ?? incidents[index].severity,
+        publicNote: publicNote !== undefined ? publicNote.trim() || null : incidents[index].publicNote,
         capa: {
           ...capaFields,
           updatedAt: new Date().toISOString(),
@@ -99,6 +121,22 @@ export function createMockRepository(): IncidentRepository {
 
     async getMetrics() {
       return computeMetrics(incidents);
+    },
+
+    async trackIncident(code) {
+      const wanted = normalizeTrackingCode(code);
+      const found = incidents.find((incident) => incident.trackingCode === wanted);
+      if (!found) return null;
+      return {
+        reference: found.reference,
+        status: found.status,
+        severity: found.severity,
+        createdAt: found.createdAt,
+        updatedAt: found.capa?.updatedAt ?? null,
+        hasOwner: Boolean(found.capa?.assigneeName),
+        dueDate: found.capa?.dueDate ?? null,
+        publicNote: found.publicNote ?? null,
+      };
     },
 
     async getLatestSafetyWalk() {

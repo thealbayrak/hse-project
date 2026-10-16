@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { ClipboardPlusIcon, EyeOffIcon, LayoutDashboardIcon, ShieldCheckIcon } from "lucide-react";
+import { ClipboardPlusIcon, EyeOffIcon, LayoutDashboardIcon, SearchCheckIcon, ShieldCheckIcon } from "lucide-react";
 import { AppShell } from "@/components/layout/app-shell";
 import { StatutoryBanner } from "@/components/layout/statutory-banner";
 import { APP_NAME } from "@/lib/constants";
@@ -61,6 +61,14 @@ export function HomeView() {
             </span>
           </Link>
         </div>
+
+        <Link
+          href="/track"
+          className="flex min-h-14 items-center gap-3 rounded-2xl border border-border bg-card px-5 py-3 text-sm font-medium transition-colors hover:bg-secondary/50"
+        >
+          <SearchCheckIcon className="size-5 shrink-0 text-amber-700 dark:text-amber-300" />
+          {t("track.homeLink")}
+        </Link>
 
         <div className={cn("flex gap-3 rounded-2xl border p-4", panelClass.info)}>
           <span className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-background/60">

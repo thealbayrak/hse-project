@@ -10,6 +10,7 @@ import {
   mapIncident,
   mapSafetyWalk,
   mapSite,
+  mapTracked,
   toSafetyWalkSummary,
   walkMediaPaths,
   type IncidentQueryRow,
@@ -24,6 +25,7 @@ import type {
   SafetyWalk,
   SafetyWalkSummary,
   Site,
+  TrackedIncident,
   UpdateCapaInput,
 } from "@/lib/types";
 import type { SupabaseClient } from "@supabase/supabase-js";
@@ -98,6 +100,10 @@ export class SupabaseIncidentRepository implements IncidentRepository {
       p_is_anonymous: input.anonymous,
       p_reporter_name: input.reporterName,
       p_attachments: attachments,
+      p_original_language: input.originalLanguage ?? null,
+      p_original_text: input.originalText ?? null,
+      p_summary_sv: input.summarySv ?? null,
+      p_ai_confidence: input.aiConfidence ?? null,
     });
     if (rpc.error) throw rpc.error;
 
@@ -122,6 +128,10 @@ export class SupabaseIncidentRepository implements IncidentRepository {
       description: input.description,
       mediaUrls: input.mediaUrls,
       audioUrl: null,
+      originalLanguage: input.originalLanguage ?? null,
+      originalText: input.originalText ?? null,
+      summarySv: input.summarySv ?? null,
+      trackingCode: row.tracking_code ?? null,
       anonymous: input.anonymous,
       reporterName: input.anonymous ? null : input.reporterName,
       status: "open",
@@ -134,7 +144,11 @@ export class SupabaseIncidentRepository implements IncidentRepository {
   async updateCapa(incidentId: string, capa: UpdateCapaInput): Promise<Incident> {
     const statusUpdate = await this.client
       .from("incidents")
-      .update({ status: capa.status, ...(capa.severity ? { severity: capa.severity } : {}) })
+      .update({
+        status: capa.status,
+        ...(capa.severity ? { severity: capa.severity } : {}),
+        ...(capa.publicNote !== undefined ? { public_note: capa.publicNote.trim() || null } : {}),
+      })
       .eq("id", incidentId);
     if (statusUpdate.error) throw statusUpdate.error;
 
@@ -240,6 +254,13 @@ export class SupabaseIncidentRepository implements IncidentRepository {
     if (created.error) throw created.error;
     if (!created.data) throw new Error("Skyddsrond was saved but could not be reloaded.");
     return this.hydrateWalk(created.data as unknown as SafetyWalkQueryRow);
+  }
+
+  async trackIncident(code: string): Promise<TrackedIncident | null> {
+    const result = await this.client.rpc("track_incident", { p_code: code });
+    if (result.error) throw result.error;
+    const row = Array.isArray(result.data) ? result.data[0] : result.data;
+    return row ? mapTracked(row) : null;
   }
 
   subscribeToIncidents(handler: RealtimeIncidentHandler) {

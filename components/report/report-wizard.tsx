@@ -1,16 +1,21 @@
 "use client";
 
-import { useRef, useState, useSyncExternalStore } from "react";
+import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import {
   CheckIcon,
   CloudOffIcon,
+  CopyIcon,
   EyeOffIcon,
   HistoryIcon,
   ImagePlusIcon,
+  LanguagesIcon,
+  Loader2Icon,
   MicIcon,
   ShieldCheckIcon,
   SparklesIcon,
+  SquareIcon,
   XIcon,
 } from "lucide-react";
 import { toast } from "sonner";
@@ -19,6 +24,8 @@ import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { StatutoryBanner } from "@/components/layout/statutory-banner";
 import { useVoiceCapture } from "@/hooks/use-voice-capture";
+import { analyzeReport, languageName } from "@/lib/ai/client";
+import type { ReportAnalysis } from "@/lib/ai/provider";
 import { DEFAULT_REPORTER_NAME, INCIDENT_TYPES, RISK_CATEGORIES } from "@/lib/constants";
 import { useLanguage } from "@/lib/i18n/LanguageContext";
 import { isImageFile } from "@/lib/media";
@@ -42,6 +49,10 @@ const STEP_SHORT_KEYS = ["report.stepWhatShort", "report.stepDetailsShort", "rep
 interface Draft extends Omit<ReportDraft, "severity"> {
   hurt: boolean | null;
   danger: boolean | null;
+  summarySv: string | null;
+  originalLanguage: string | null;
+  originalText: string | null;
+  aiConfidence: number | null;
 }
 
 const EMPTY_DRAFT: Draft = {
@@ -56,19 +67,31 @@ const EMPTY_DRAFT: Draft = {
   photoFiles: [],
   audioFile: null,
   anonymous: false,
+  summarySv: null,
+  originalLanguage: null,
+  originalText: null,
+  aiConfidence: null,
 };
 
-export function ReportWizard() {
+type AnalysisState =
+  | { status: "idle" }
+  | { status: "working" }
+  | { status: "done"; result: ReportAnalysis }
+  | { status: "failed"; error: string };
+
+export function ReportWizard({ aiEnabled = false }: { aiEnabled?: boolean }) {
   const router = useRouter();
   const { locale, t } = useLanguage();
   const { sites, createIncident, loading, error } = useIncidentStore();
   const [step, setStep] = useState(0);
   const [draft, setDraft] = useState<Draft>(EMPTY_DRAFT);
   const [submitting, setSubmitting] = useState(false);
-  const [submitted, setSubmitted] = useState<{ reference: string; pending: boolean } | null>(null);
+  const [submitted, setSubmitted] = useState<{ reference: string; pending: boolean; trackingCode: string | null } | null>(null);
   const [dragOver, setDragOver] = useState(false);
+  const [analysis, setAnalysis] = useState<AnalysisState>({ status: "idle" });
   const fileInputRef = useRef<HTMLInputElement>(null);
   const descriptionAnchor = useRef("");
+  const analyzedBlobRef = useRef<Blob | null>(null);
   const lastSite = useSyncExternalStore(subscribeLastSite, readLastSite, serverLastSite);
 
   const voice = useVoiceCapture((text) => {
@@ -98,6 +121,36 @@ export function ReportWizard() {
 
   function patch(next: Partial<Draft>) {
     setDraft((current) => ({ ...current, ...next }));
+  }
+
+  // A finished voice note is sent to the assistant once; the result fills the form.
+  useEffect(() => {
+    const blob = voice.audioBlob;
+    if (!aiEnabled || !blob || analyzedBlobRef.current === blob) return;
+    analyzedBlobRef.current = blob;
+    Promise.resolve().then(() => runAnalysis({ audio: blob }));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [voice.audioBlob, aiEnabled]);
+
+  async function runAnalysis(input: { audio?: Blob; text?: string }) {
+    setAnalysis({ status: "working" });
+    try {
+      const result = await analyzeReport({ ...input, locale });
+      setDraft((current) => ({
+        ...current,
+        description: result.transcript || current.description,
+        category: current.category ?? result.category,
+        hurt: current.hurt ?? result.hurt,
+        danger: current.danger ?? result.danger,
+        summarySv: result.summarySv || null,
+        originalLanguage: result.originalLanguage || null,
+        originalText: result.transcript || current.description || null,
+        aiConfidence: result.confidence,
+      }));
+      setAnalysis({ status: "done", result });
+    } catch (caught) {
+      setAnalysis({ status: "failed", error: caught instanceof Error ? caught.message : "failed" });
+    }
   }
 
   async function addFiles(files: FileList | File[]) {
@@ -131,7 +184,7 @@ export function ReportWizard() {
     }
     if (voice.recording) {
       await voice.toggle();
-      toast.success(t("toast.voiceCaptured"));
+      if (!aiEnabled) toast.success(t("toast.voiceCaptured"));
       return;
     }
     descriptionAnchor.current = draft.description.trim();
@@ -158,9 +211,17 @@ export function ReportWizard() {
         audioFile: voice.audioBlob ?? draft.audioFile,
         anonymous: draft.anonymous,
         reporterName: draft.anonymous ? null : DEFAULT_REPORTER_NAME,
+        originalLanguage: draft.originalLanguage,
+        originalText: draft.originalText,
+        summarySv: draft.summarySv,
+        aiConfidence: draft.aiConfidence,
       });
       rememberLastSite({ siteId, locationId });
-      setSubmitted({ reference: created.reference, pending: Boolean(created.pending) });
+      setSubmitted({
+        reference: created.reference,
+        pending: Boolean(created.pending),
+        trackingCode: created.trackingCode ?? null,
+      });
       toast.success(created.pending ? t("offline.queued") : t("toast.reportReceived"));
     } catch (caught) {
       const message = caught instanceof Error ? caught.message : t("toast.reportFailed");
@@ -168,6 +229,15 @@ export function ReportWizard() {
     } finally {
       setSubmitting(false);
     }
+  }
+
+  function reset() {
+    setDraft(EMPTY_DRAFT);
+    setSubmitted(null);
+    setAnalysis({ status: "idle" });
+    analyzedBlobRef.current = null;
+    setStep(0);
+    voice.clearAudio();
   }
 
   if (submitted) {
@@ -196,23 +266,17 @@ export function ReportWizard() {
               {t("statutory.criticalNow")}
             </p>
           )}
-          <div className="mt-6 grid gap-3 sm:grid-cols-2">
-            <Button
-              className="h-14 text-base"
-              variant="outline"
-              onClick={() => {
-                setDraft(EMPTY_DRAFT);
-                setSubmitted(null);
-                setStep(0);
-                voice.clearAudio();
-              }}
-            >
-              {t("buttons.reportAnother")}
-            </Button>
-            <Button className="h-14 text-base" onClick={() => router.push("/")}>
-              {t("buttons.done")}
-            </Button>
-          </div>
+        </div>
+
+        {submitted.trackingCode && <TrackingCodeCard code={submitted.trackingCode} />}
+
+        <div className="grid gap-3 sm:grid-cols-2">
+          <Button className="h-14 text-base" variant="outline" onClick={reset}>
+            {t("buttons.reportAnother")}
+          </Button>
+          <Button className="h-14 text-base" onClick={() => router.push("/")}>
+            {t("buttons.done")}
+          </Button>
         </div>
         <StatutoryBanner compact />
       </div>
@@ -318,6 +382,87 @@ export function ReportWizard() {
 
       {step === 1 && (
         <section className="space-y-6">
+          {/* Voice first: any language in, Swedish summary out. */}
+          <div className={cn("rounded-2xl border p-4", aiEnabled ? panelClass.info : "border-border bg-card")}>
+            <div className="flex items-start gap-3">
+              <LanguagesIcon className="mt-0.5 size-5 shrink-0" />
+              <div className="min-w-0 flex-1">
+                <h2 className="text-lg font-semibold">{aiEnabled ? t("ai.title") : t("report.whatHappened")}</h2>
+                <p className="text-sm opacity-80">{aiEnabled ? t("ai.hint") : t("report.placeholder")}</p>
+              </div>
+            </div>
+            <Button
+              type="button"
+              variant={voice.recording ? "destructive" : "default"}
+              className="mt-4 h-16 w-full gap-3 text-base"
+              onClick={() => void toggleVoice()}
+              disabled={analysis.status === "working"}
+            >
+              {voice.recording ? <SquareIcon className="size-5" /> : <MicIcon className="size-5" />}
+              {voice.recording ? (aiEnabled ? t("ai.stop") : t("buttons.listening")) : aiEnabled ? t("ai.record") : t("buttons.recordVoice")}
+            </Button>
+            {analysis.status === "working" && (
+              <p className="mt-3 flex items-center gap-2 text-sm">
+                <Loader2Icon className="size-4 animate-spin" />
+                {t("ai.analyzing")}
+              </p>
+            )}
+            {analysis.status === "done" && (
+              <div className="mt-3 space-y-1 text-sm">
+                <p className="flex items-center gap-2 font-medium">
+                  <SparklesIcon className="size-4" />
+                  {t("ai.applied")}
+                </p>
+                {analysis.result.originalLanguage && (
+                  <p className="text-xs opacity-80">
+                    {t("ai.detected", { lang: languageName(analysis.result.originalLanguage, locale) })}
+                  </p>
+                )}
+                {analysis.result.confidence < 0.5 && (
+                  <p className={cn("rounded-lg border px-3 py-2 text-xs", panelClass.warning)}>{t("ai.lowConfidence")}</p>
+                )}
+              </div>
+            )}
+            {analysis.status === "failed" && (
+              <p className={cn("mt-3 rounded-lg border px-3 py-2 text-sm", panelClass.warning)}>{t("ai.unavailable")}</p>
+            )}
+            {voice.recording && !aiEnabled && (
+              <p className="mt-2 text-xs text-muted-foreground">{t("report.recordingNote")}</p>
+            )}
+          </div>
+
+          <div>
+            <div className="mb-2 flex items-center justify-between gap-3">
+              <h2 className="text-lg font-semibold">{t("report.whatHappened")}</h2>
+              {aiEnabled && (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="h-10 gap-2"
+                  disabled={analysis.status === "working" || draft.description.trim().length < 8}
+                  onClick={() => void runAnalysis({ text: draft.description })}
+                >
+                  <SparklesIcon className="size-4" />
+                  {t("ai.fromText")}
+                </Button>
+              )}
+            </div>
+            <Textarea
+              value={draft.description}
+              onChange={(event) => patch({ description: event.target.value, summarySv: null, originalText: null })}
+              placeholder={t("report.placeholder")}
+              className="min-h-32 text-base"
+            />
+            {draft.summarySv && (
+              <div className="mt-2 rounded-xl border border-border bg-secondary/40 px-3 py-2">
+                <p className="text-[11px] font-semibold tracking-wide text-muted-foreground uppercase">{t("ai.summaryTitle")}</p>
+                <p className="mt-1 text-sm">{draft.summarySv}</p>
+              </div>
+            )}
+            {aiEnabled && <p className="mt-2 text-xs text-muted-foreground">{t("ai.poweredBy")}</p>}
+          </div>
+
           <fieldset>
             <legend className="mb-1 text-lg font-semibold">{t("incident.howSerious")}</legend>
             <p className="mb-3 text-sm text-muted-foreground">{t("report.answerBoth")}</p>
@@ -360,36 +505,6 @@ export function ReportWizard() {
               ))}
             </div>
           </fieldset>
-
-          <div>
-            <div className="mb-3 flex items-center justify-between gap-3">
-              <h2 className="text-lg font-semibold">{t("report.whatHappened")}</h2>
-              <Button
-                type="button"
-                variant="outline"
-                className="h-12 gap-2 px-3"
-                onClick={() => void toggleVoice()}
-              >
-                {voice.recording ? (
-                  <SparklesIcon className="size-4 animate-pulse" />
-                ) : (
-                  <MicIcon className="size-4" />
-                )}
-                {voice.recording ? t("buttons.listening") : t("buttons.recordVoice")}
-              </Button>
-            </div>
-            <Textarea
-              value={draft.description}
-              onChange={(event) => patch({ description: event.target.value })}
-              placeholder={t("report.placeholder")}
-              className="min-h-36 text-base"
-            />
-            {(voice.audioBlob || voice.recording) && (
-              <p className="mt-2 text-xs text-muted-foreground">
-                {voice.recording ? t("report.recordingNote") : t("report.voiceAttached")}
-              </p>
-            )}
-          </div>
 
           <div>
             <h2 className="text-lg font-semibold">{t("report.addPhoto")}</h2>
@@ -496,7 +611,13 @@ export function ReportWizard() {
           />
           <div className="rounded-xl border border-border bg-card px-4 py-3">
             <p className="text-sm text-muted-foreground">{t("report.description")}</p>
-            <p className="mt-1 text-sm leading-relaxed">{draft.description}</p>
+            <p className="mt-1 text-sm leading-relaxed whitespace-pre-line">{draft.description}</p>
+            {draft.summarySv && (
+              <>
+                <p className="mt-3 text-sm text-muted-foreground">{t("ai.summaryTitle")}</p>
+                <p className="mt-1 text-sm leading-relaxed">{draft.summarySv}</p>
+              </>
+            )}
           </div>
           {!!draft.mediaUrls.length && (
             <div className="grid grid-cols-4 gap-2">
@@ -534,7 +655,7 @@ export function ReportWizard() {
           <Button
             type="button"
             className="h-14 text-base"
-            disabled={(step === 0 && !step1Ready) || (step === 1 && !step2Ready)}
+            disabled={(step === 0 && !step1Ready) || (step === 1 && (!step2Ready || analysis.status === "working"))}
             onClick={() => setStep((current) => current + 1)}
           >
             {t("buttons.continue")}
@@ -553,6 +674,40 @@ export function ReportWizard() {
                 : t("buttons.sendReport")}
           </Button>
         )}
+      </div>
+    </div>
+  );
+}
+
+function TrackingCodeCard({ code }: { code: string }) {
+  const { t } = useLanguage();
+
+  async function copy() {
+    try {
+      await navigator.clipboard.writeText(code);
+      toast.success(t("track.copied"));
+    } catch {
+      // Clipboard can be blocked; the code is still on screen.
+    }
+  }
+
+  return (
+    <div className={cn("rounded-2xl border p-5 text-center", panelClass.info)}>
+      <p className="text-xs font-semibold tracking-wide uppercase opacity-80">{t("track.yourCode")}</p>
+      <p className="mt-2 font-mono text-3xl font-semibold tracking-[0.2em]">{code}</p>
+      <p className="mt-2 text-sm opacity-85">{t("track.saveCode")}</p>
+      <div className="mt-4 grid gap-2 sm:grid-cols-2">
+        <Button type="button" variant="outline" className="h-12 gap-2" onClick={() => void copy()}>
+          <CopyIcon className="size-4" />
+          {t("track.copy")}
+        </Button>
+        <Link
+          href={`/track?code=${encodeURIComponent(code)}`}
+          className="inline-flex h-12 items-center justify-center gap-2 rounded-lg bg-amber-500 px-4 text-sm font-medium text-slate-950"
+        >
+          <ShieldCheckIcon className="size-4" />
+          {t("track.follow")}
+        </Link>
       </div>
     </div>
   );
