@@ -36,10 +36,7 @@ npm run typecheck
    SQL editor of the Supabase dashboard and run it. Regenerate it after editing a migration:
 
    ```bash
-   node -e "const fs=require('fs');const p=['supabase/migrations/20261016110000_archive_prototype.sql','supabase/migrations/20261016120000_sitesafety_schema.sql','supabase/seed.sql'];fs.writeFileSync('supabase/apply-all.sql',p.map(f=>'-- ===== '+f+' =====
-'+fs.readFileSync(f,'utf8')).join('
-
-'))"
+   node scripts/build-apply-all.mjs
    ```
 3. Create the safety officers' accounts under **Authentication → Users** (email + password,
    or invite by e-mail). Field workers never need an account.
