@@ -132,7 +132,10 @@ export class SupabaseIncidentRepository implements IncidentRepository {
   }
 
   async updateCapa(incidentId: string, capa: UpdateCapaInput): Promise<Incident> {
-    const statusUpdate = await this.client.from("incidents").update({ status: capa.status }).eq("id", incidentId);
+    const statusUpdate = await this.client
+      .from("incidents")
+      .update({ status: capa.status, ...(capa.severity ? { severity: capa.severity } : {}) })
+      .eq("id", incidentId);
     if (statusUpdate.error) throw statusUpdate.error;
 
     const existing = await this.client

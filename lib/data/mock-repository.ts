@@ -83,11 +83,13 @@ export function createMockRepository(): IncidentRepository {
         throw new Error(`Incident ${incidentId} not found`);
       }
 
+      const { severity, ...capaFields } = capa;
       const updated: Incident = {
         ...incidents[index],
         status: capa.status,
+        severity: severity ?? incidents[index].severity,
         capa: {
-          ...capa,
+          ...capaFields,
           updatedAt: new Date().toISOString(),
         },
       };

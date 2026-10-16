@@ -2,25 +2,34 @@
 
 import { TriangleAlertIcon } from "lucide-react";
 import { useLanguage } from "@/lib/i18n/LanguageContext";
+import { panelClass } from "@/lib/tones";
 import { cn } from "@/lib/utils";
 
-export function StatutoryBanner({ notice = "aml" }: { notice?: "aml" | "sam" }) {
+export function StatutoryBanner({
+  notice = "aml",
+  compact = false,
+}: {
+  notice?: "aml" | "sam";
+  compact?: boolean;
+}) {
   const { t } = useLanguage();
   const sam = notice === "sam";
   return (
     <div
       role="status"
       className={cn(
-        "flex gap-3 rounded-xl border px-4 py-3 shadow-[inset_0_0_0_1px_rgba(248,113,113,0.08)]",
-        sam
-          ? "border-amber-500/40 bg-amber-950/40 text-amber-50"
-          : "border-red-500/40 bg-red-950/70 text-red-50"
+        "flex gap-3 rounded-xl border px-4 py-3",
+        sam ? panelClass.warning : panelClass.danger,
+        compact && "px-3 py-2"
       )}
     >
       <TriangleAlertIcon
-        className={cn("mt-0.5 size-5 shrink-0", sam ? "text-amber-400" : "text-red-400")}
+        className={cn(
+          "mt-0.5 size-5 shrink-0",
+          sam ? "text-amber-600 dark:text-amber-400" : "text-red-600 dark:text-red-400"
+        )}
       />
-      <p className="text-[13px] leading-snug font-medium sm:text-sm">
+      <p className={cn("leading-snug font-medium", compact ? "text-xs" : "text-[13px] sm:text-sm")}>
         {t(sam ? "statutory.sam" : "statutory.aml")}
       </p>
     </div>

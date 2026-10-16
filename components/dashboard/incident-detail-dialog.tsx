@@ -16,7 +16,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { INCIDENT_STATUSES, SAFETY_OFFICERS } from "@/lib/constants";
+import { INCIDENT_STATUSES, SAFETY_OFFICERS, SEVERITY_LEVELS } from "@/lib/constants";
 import {
   categoryLabel,
   formatDateTime,
@@ -29,8 +29,8 @@ import { useLanguage } from "@/lib/i18n/LanguageContext";
 import { addBusinessDaysIsoDate } from "@/lib/skyddsrond/business-days";
 import { useIncidentStore } from "@/lib/store/incident-store";
 import { cn } from "@/lib/utils";
-import { severityClass, statusClass } from "@/lib/tones";
-import type { Incident, IncidentStatus } from "@/lib/types";
+import { panelClass, severityClass, statusClass } from "@/lib/tones";
+import type { Incident, IncidentStatus, Severity } from "@/lib/types";
 
 export function IncidentDetailDialog({
   incident,
@@ -57,6 +57,7 @@ function IncidentDetail({ incident, onClose }: { incident: Incident; onClose: ()
   );
   const [dueDate, setDueDate] = useState(() => incident.capa?.dueDate || defaultDueDate());
   const [status, setStatus] = useState<IncidentStatus>(() => incident.capa?.status ?? incident.status);
+  const [severity, setSeverity] = useState<Severity>(incident.severity);
   const [notes, setNotes] = useState(() => incident.capa?.notes ?? "");
   const [saving, setSaving] = useState(false);
   const [amlOpen, setAmlOpen] = useState(false);
@@ -76,6 +77,7 @@ function IncidentDetail({ incident, onClose }: { incident: Incident; onClose: ()
         dueDate,
         status,
         notes: notes.trim(),
+        severity: severity !== incident.severity ? severity : undefined,
       });
       toast.success(t("toast.capaSaved"));
       onClose();
@@ -90,7 +92,7 @@ function IncidentDetail({ incident, onClose }: { incident: Incident; onClose: ()
   return (
     <>
       <DialogHeader>
-        <DialogTitle className="font-mono text-amber-300">{incident.reference}</DialogTitle>
+        <DialogTitle className="font-mono text-amber-700 dark:text-amber-300">{incident.reference}</DialogTitle>
         <DialogDescription>
           {typeLabel(incident.type, locale)} · {placeLabel(incident)}
         </DialogDescription>
@@ -119,7 +121,7 @@ function IncidentDetail({ incident, onClose }: { incident: Incident; onClose: ()
       <Button
         type="button"
         variant="outline"
-        className="h-12 w-full gap-2 border-red-500/40 bg-red-950/40 text-red-100 hover:bg-red-950/70"
+        className={cn("h-12 w-full gap-2", panelClass.danger)}
         onClick={() => setAmlOpen(true)}
       >
         <FileText className="size-4" />
@@ -150,10 +152,31 @@ function IncidentDetail({ incident, onClose }: { incident: Incident; onClose: ()
       )}
 
       <div className="rounded-xl border border-border bg-secondary/30 p-4">
-        <h3 className="mb-3 text-sm font-semibold tracking-wide text-amber-300 uppercase">
+        <h3 className="mb-3 text-sm font-semibold tracking-wide text-amber-700 uppercase dark:text-amber-300">
           {t("dashboard.capaTitle")}
         </h3>
         <div className="grid gap-4 sm:grid-cols-2">
+          <div className="space-y-2 sm:col-span-2">
+            <Label>{t("dashboard.severityLabel")}</Label>
+            <div className="grid grid-cols-4 gap-2">
+              {SEVERITY_LEVELS.map((item) => (
+                <button
+                  key={item.id}
+                  type="button"
+                  onClick={() => setSeverity(item.id)}
+                  className={cn(
+                    "min-h-12 rounded-xl border px-2 text-xs font-semibold",
+                    severity === item.id
+                      ? cn(severityClass[item.id], "ring-2 ring-current/30")
+                      : "border-border bg-background text-muted-foreground"
+                  )}
+                >
+                  {severityLabel(item.id, locale)}
+                </button>
+              ))}
+            </div>
+            <p className="text-xs text-muted-foreground">{t("dashboard.severityHint")}</p>
+          </div>
           <div className="space-y-2 sm:col-span-2">
             <Label htmlFor="assignee">{t("dashboard.assignee")}</Label>
             <div className="grid gap-2 sm:grid-cols-2">
@@ -165,7 +188,7 @@ function IncidentDetail({ incident, onClose }: { incident: Incident; onClose: ()
                   className={cn(
                     "min-h-14 rounded-xl border px-3 py-2 text-left",
                     assigneeId === officer.id
-                      ? "border-amber-400 bg-amber-500/15"
+                      ? "border-amber-500 bg-amber-500/15"
                       : "border-border bg-background hover:bg-secondary/60"
                   )}
                 >
@@ -196,7 +219,7 @@ function IncidentDetail({ incident, onClose }: { incident: Incident; onClose: ()
                   className={cn(
                     "min-h-12 rounded-xl border px-2 text-xs font-medium",
                     status === item.id
-                      ? "border-amber-400 bg-amber-500 text-slate-950"
+                      ? "border-amber-500 bg-amber-500 text-slate-950"
                       : "border-border bg-background"
                   )}
                 >

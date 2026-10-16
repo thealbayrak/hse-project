@@ -15,7 +15,7 @@ function IosViewportSync() {
 
 export function Providers({ initialLocale, children }: { initialLocale: Locale; children: React.ReactNode }) {
   return (
-    <ThemeProvider attribute="class" defaultTheme="dark" forcedTheme="dark">
+    <ThemeProvider attribute="class" defaultTheme="system" enableSystem disableTransitionOnChange>
       <LanguageProvider initialLocale={initialLocale}>
         <AuthProvider>
           <IncidentProvider>

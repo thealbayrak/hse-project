@@ -4,6 +4,8 @@ import { ClipboardCheckIcon } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { formatDateTime } from "@/lib/format";
 import { useLanguage } from "@/lib/i18n/LanguageContext";
+import { chipClass, panelClass } from "@/lib/tones";
+import { cn } from "@/lib/utils";
 import type { SafetyWalkSummary } from "@/lib/types";
 
 export function LatestSkyddsrondCard({ walk }: { walk: SafetyWalkSummary | null }) {
@@ -12,7 +14,7 @@ export function LatestSkyddsrondCard({ walk }: { walk: SafetyWalkSummary | null 
     <Card className="py-4">
       <CardContent className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div className="flex items-start gap-3">
-          <span className="flex size-11 shrink-0 items-center justify-center rounded-xl bg-amber-500/15 text-amber-300">
+          <span className={cn("flex size-11 shrink-0 items-center justify-center rounded-xl", chipClass.amber)}>
             <ClipboardCheckIcon className="size-5" />
           </span>
           <div>
@@ -38,16 +40,8 @@ export function LatestSkyddsrondCard({ walk }: { walk: SafetyWalkSummary | null 
         </div>
         {walk && (
           <div className="grid grid-cols-2 gap-3 sm:min-w-[220px]">
-            <DeviationStat
-              label={t("dashboard.activeDeviations")}
-              value={walk.activeDeviations}
-              tone="red"
-            />
-            <DeviationStat
-              label={t("dashboard.resolved")}
-              value={walk.resolvedDeviations}
-              tone="emerald"
-            />
+            <DeviationStat label={t("dashboard.activeDeviations")} value={walk.activeDeviations} tone="danger" />
+            <DeviationStat label={t("dashboard.resolved")} value={walk.resolvedDeviations} tone="success" />
           </div>
         )}
       </CardContent>
@@ -62,17 +56,11 @@ function DeviationStat({
 }: {
   label: string;
   value: number;
-  tone: "red" | "emerald";
+  tone: "danger" | "success";
 }) {
   return (
-    <div
-      className={
-        tone === "red"
-          ? "rounded-xl border border-red-500/30 bg-red-950/30 px-3 py-2"
-          : "rounded-xl border border-emerald-500/30 bg-emerald-950/30 px-3 py-2"
-      }
-    >
-      <p className="text-xs text-muted-foreground">{label}</p>
+    <div className={cn("rounded-xl border px-3 py-2", panelClass[tone])}>
+      <p className="text-xs opacity-80">{label}</p>
       <p className="text-2xl font-semibold">{value}</p>
     </div>
   );

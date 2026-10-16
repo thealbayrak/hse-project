@@ -1,15 +1,20 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import {
   ActivityIcon,
   AlertOctagonIcon,
+  CalendarClockIcon,
+  CheckCircle2Icon,
   ClipboardCheckIcon,
   ClipboardListIcon,
+  ClipboardPlusIcon,
   DownloadIcon,
   FileSpreadsheetIcon,
   ShieldAlertIcon,
+  UserRoundXIcon,
 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -19,22 +24,37 @@ import { IncidentDetailDialog } from "@/components/dashboard/incident-detail-dia
 import { LatestSkyddsrondCard } from "@/components/dashboard/latest-skyddsrond-card";
 import { SkyddsrondDialog } from "@/components/skyddsrond/skyddsrond-dialog";
 import { downloadIncidentsCsv, printIncidentsPdf } from "@/lib/export";
-import {
-  categoryLabel,
-  placeLabel,
-  relativeTime,
-  severityLabel,
-  statusLabel,
-  typeLabel,
-} from "@/lib/format";
+import { categoryLabel, placeLabel, relativeTime, severityLabel, statusLabel, typeLabel } from "@/lib/format";
 import { useLanguage } from "@/lib/i18n/LanguageContext";
 import { useIncidentStore } from "@/lib/store/incident-store";
 import { cn } from "@/lib/utils";
-import { severityBarClass, severityClass, statusClass } from "@/lib/tones";
-import type { IncidentStatus, Severity } from "@/lib/types";
+import { chipClass, panelClass, severityBarClass, statusClass } from "@/lib/tones";
+import type { Incident, IncidentStatus, SafetyWalkSummary, Severity } from "@/lib/types";
 
 const STATUS_FILTERS: IncidentStatus[] = ["open", "in-progress", "resolved"];
 const SEVERITY_FILTERS: Severity[] = ["critical", "high", "medium", "low"];
+
+type Focus = "overdue" | "unowned" | null;
+
+const DAY_MS = 86_400_000;
+
+/** Today's date in Europe/Stockholm as YYYY-MM-DD (due dates are stored that way). */
+function stockholmToday() {
+  return new Intl.DateTimeFormat("sv-SE", { timeZone: "Europe/Stockholm" }).format(new Date());
+}
+
+export function isOverdue(incident: Incident, today = stockholmToday()) {
+  return Boolean(incident.capa?.dueDate) && incident.status !== "resolved" && incident.capa!.dueDate < today;
+}
+
+export function isUnownedCritical(incident: Incident) {
+  return incident.severity === "critical" && incident.status !== "resolved" && !incident.capa?.assigneeName;
+}
+
+export function isWalkStale(walk: SafetyWalkSummary | null, now = Date.now()) {
+  if (!walk) return true;
+  return now - new Date(walk.completedAt).getTime() > 7 * DAY_MS;
+}
 
 export function DashboardView() {
   const { incidents, metrics, loading, error, highlightedIds, latestSafetyWalk } = useIncidentStore();
@@ -42,6 +62,7 @@ export function DashboardView() {
   const searchParams = useSearchParams();
   const [status, setStatus] = useState<IncidentStatus | "all">("all");
   const [severity, setSeverity] = useState<Severity | "all">("all");
+  const [focus, setFocus] = useState<Focus>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [dismissedDeepLink, setDismissedDeepLink] = useState<string | null>(null);
   const [skyddsrondOpen, setSkyddsrondOpen] = useState(false);
@@ -56,14 +77,22 @@ export function DashboardView() {
     if (deepLinkId) setDismissedDeepLink(deepLinkId);
   }
 
+  const today = stockholmToday();
+  const overdue = useMemo(() => incidents.filter((incident) => isOverdue(incident, today)), [incidents, today]);
+  const unowned = useMemo(() => incidents.filter(isUnownedCritical), [incidents]);
+  const walkStale = isWalkStale(latestSafetyWalk);
+  const attentionCount = (overdue.length ? 1 : 0) + (unowned.length ? 1 : 0) + (walkStale ? 1 : 0);
+
   const filtered = useMemo(
     () =>
       incidents.filter((incident) => {
+        if (focus === "overdue" && !isOverdue(incident, today)) return false;
+        if (focus === "unowned" && !isUnownedCritical(incident)) return false;
         const statusOk = status === "all" || incident.status === status;
         const severityOk = severity === "all" || incident.severity === severity;
         return statusOk && severityOk;
       }),
-    [incidents, status, severity]
+    [incidents, status, severity, focus, today]
   );
 
   function exportCsv() {
@@ -80,54 +109,109 @@ export function DashboardView() {
     toast.success(t("toast.pdfReady"));
   }
 
+  const showSkeleton = loading && incidents.length === 0;
+
   return (
     <div className="space-y-6">
-      <StatutoryBanner />
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <p className="text-sm text-muted-foreground">{t("dashboard.samHint")}</p>
-        <Button className="h-12 w-full gap-2 sm:w-auto" onClick={() => setSkyddsrondOpen(true)}>
-          <ClipboardCheckIcon className="size-4" />
-          {t("buttons.conductWalk")}
-        </Button>
-      </div>
       {error && (
-        <p className="rounded-xl border border-amber-500/40 bg-amber-950/40 px-4 py-3 text-sm text-amber-100">
-          {error}
-        </p>
+        <p className={cn("rounded-xl border px-4 py-3 text-sm", panelClass.warning)}>{error}</p>
       )}
 
-      <div className="grid grid-cols-2 gap-3 xl:grid-cols-4">
-        <MetricCard
+      {/* 1. What needs the officer's attention today */}
+      <section
+        aria-labelledby="attention-heading"
+        className={cn(
+          "rounded-2xl border p-4",
+          attentionCount ? panelClass.warning : panelClass.success
+        )}
+      >
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <h2 id="attention-heading" className="text-sm font-semibold tracking-wide uppercase opacity-80">
+              {t("dashboard.attentionTitle")}
+            </h2>
+            {showSkeleton ? (
+              <div className="mt-2 h-5 w-48 animate-pulse rounded bg-current/15" />
+            ) : attentionCount === 0 ? (
+              <p className="mt-1 flex items-center gap-2 text-sm font-medium">
+                <CheckCircle2Icon className="size-4" />
+                {t("dashboard.allClear")}
+              </p>
+            ) : (
+              <ul className="mt-2 flex flex-wrap gap-2">
+                {overdue.length > 0 && (
+                  <li>
+                    <AttentionChip
+                      active={focus === "overdue"}
+                      icon={CalendarClockIcon}
+                      label={t("dashboard.overdue", { n: overdue.length })}
+                      onClick={() => setFocus(focus === "overdue" ? null : "overdue")}
+                    />
+                  </li>
+                )}
+                {unowned.length > 0 && (
+                  <li>
+                    <AttentionChip
+                      active={focus === "unowned"}
+                      icon={UserRoundXIcon}
+                      label={t("dashboard.unownedCritical", { n: unowned.length })}
+                      onClick={() => setFocus(focus === "unowned" ? null : "unowned")}
+                    />
+                  </li>
+                )}
+                {walkStale && (
+                  <li>
+                    <AttentionChip
+                      icon={ClipboardCheckIcon}
+                      label={t("dashboard.staleWalk")}
+                      onClick={() => setSkyddsrondOpen(true)}
+                    />
+                  </li>
+                )}
+              </ul>
+            )}
+          </div>
+          <Button className="h-12 shrink-0 gap-2" onClick={() => setSkyddsrondOpen(true)}>
+            <ClipboardCheckIcon className="size-4" />
+            {t("buttons.conductWalk")}
+          </Button>
+        </div>
+      </section>
+
+      {/* 2. Compact metrics */}
+      <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+        <MetricTile
           label={t("dashboard.totalReports")}
           value={metrics.totalReports}
-          hint={t("dashboard.totalHint")}
           icon={ClipboardListIcon}
+          loading={showSkeleton}
         />
-        <MetricCard
+        <MetricTile
           label={t("dashboard.openActions")}
           value={metrics.openActions}
-          hint={t("dashboard.openHint")}
           icon={ActivityIcon}
           tone="amber"
+          loading={showSkeleton}
         />
-        <MetricCard
+        <MetricTile
           label={t("dashboard.criticalNear")}
           value={metrics.criticalNearMisses}
-          hint={t("dashboard.criticalHint")}
           icon={AlertOctagonIcon}
           tone="red"
+          loading={showSkeleton}
         />
-        <MetricCard
+        <MetricTile
           label={t("dashboard.daysFree")}
           value={metrics.daysIncidentFree}
-          hint={t("dashboard.daysHint")}
           icon={ShieldAlertIcon}
           tone="emerald"
+          loading={showSkeleton}
         />
       </div>
 
       <LatestSkyddsrondCard walk={latestSafetyWalk} />
 
+      {/* 3. Feed */}
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h2 className="text-lg font-semibold">{t("dashboard.feed")}</h2>
@@ -167,59 +251,60 @@ export function DashboardView() {
         ))}
       </div>
 
-      <div className="space-y-3">
-        {filtered.map((incident) => (
-          <button
-            key={incident.id}
-            type="button"
-            onClick={() => setSelectedId(incident.id)}
-            className={cn(
-              "flex w-full min-h-[5.5rem] overflow-hidden rounded-2xl border border-border bg-card text-left transition-colors hover:bg-secondary/40",
-              highlightedIds.includes(incident.id) && "ring-2 ring-amber-400 ring-offset-2 ring-offset-background"
-            )}
-          >
-            <span className={cn("w-1.5 shrink-0", severityBarClass[incident.severity])} />
-            <span className="flex flex-1 flex-col gap-2 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
-              <span>
-                <span className="flex flex-wrap items-center gap-2">
-                  <span className="font-mono text-xs text-amber-300">{incident.reference}</span>
-                  <span className="text-sm font-semibold">{typeLabel(incident.type, locale)}</span>
-                </span>
-                <span className="mt-1 block text-sm text-muted-foreground">
-                  {placeLabel(incident)} · {categoryLabel(incident.category, locale)}
-                </span>
-              </span>
-              <span className="flex flex-wrap items-center gap-2">
-                <span
-                  className={cn(
-                    "rounded-full border px-2.5 py-1 text-xs font-medium",
-                    severityClass[incident.severity]
-                  )}
-                >
-                  {severityLabel(incident.severity, locale)}
-                </span>
-                <span
-                  className={cn(
-                    "rounded-full border px-2.5 py-1 text-xs font-medium",
-                    statusClass[incident.status]
-                  )}
-                >
-                  {statusLabel(incident.status, locale)}
-                </span>
-                <span className="text-xs text-muted-foreground">{relativeTime(incident.createdAt, locale)}</span>
-              </span>
-            </span>
-          </button>
-        ))}
-        {!filtered.length && (
+      <div className="space-y-2">
+        {showSkeleton &&
+          [0, 1, 2].map((index) => (
+            <div key={index} className="flex h-[4.5rem] overflow-hidden rounded-2xl border border-border bg-card">
+              <span className="w-1.5 shrink-0 animate-pulse bg-muted" />
+              <div className="flex-1 space-y-2 px-4 py-3">
+                <div className="h-4 w-1/2 animate-pulse rounded bg-muted" />
+                <div className="h-3 w-3/4 animate-pulse rounded bg-muted" />
+              </div>
+            </div>
+          ))}
+
+        {!showSkeleton &&
+          filtered.map((incident) => (
+            <IncidentRow
+              key={incident.id}
+              incident={incident}
+              highlighted={highlightedIds.includes(incident.id)}
+              overdue={isOverdue(incident, today)}
+              onClick={() => setSelectedId(incident.id)}
+            />
+          ))}
+
+        {!showSkeleton && !filtered.length && (
           <Card>
             <CardHeader>
-              <CardTitle>{t("dashboard.emptyTitle")}</CardTitle>
-              <CardDescription>{t("dashboard.emptyBody")}</CardDescription>
+              <CardTitle>{incidents.length ? t("dashboard.emptyTitle") : t("dashboard.emptyFirstTitle")}</CardTitle>
+              <CardDescription>
+                {incidents.length ? t("dashboard.emptyBody") : t("dashboard.emptyFirstBody")}
+              </CardDescription>
             </CardHeader>
+            {!incidents.length && (
+              <CardContent>
+                <Link
+                  href="/report"
+                  className="inline-flex h-12 items-center gap-2 rounded-lg bg-amber-500 px-4 text-sm font-medium text-slate-950"
+                >
+                  <ClipboardPlusIcon className="size-4" />
+                  {t("buttons.sendTest")}
+                </Link>
+              </CardContent>
+            )}
+            {incidents.length > 0 && focus && (
+              <CardContent>
+                <Button variant="outline" className="h-11" onClick={() => setFocus(null)}>
+                  {t("status.all")}
+                </Button>
+              </CardContent>
+            )}
           </Card>
         )}
       </div>
+
+      <StatutoryBanner compact />
 
       <IncidentDetailDialog incident={selected} onClose={closeDetail} />
       <SkyddsrondDialog open={skyddsrondOpen} onClose={() => setSkyddsrondOpen(false)} />
@@ -227,39 +312,130 @@ export function DashboardView() {
   );
 }
 
-function MetricCard({
+function IncidentRow({
+  incident,
+  highlighted,
+  overdue,
+  onClick,
+}: {
+  incident: Incident;
+  highlighted: boolean;
+  overdue: boolean;
+  onClick: () => void;
+}) {
+  const { locale, t } = useLanguage();
+  const owner = incident.capa?.assigneeName;
+
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-label={`${incident.reference} ${typeLabel(incident.type, locale)}, ${severityLabel(incident.severity, locale)}`}
+      className={cn(
+        "flex w-full min-h-[4.5rem] overflow-hidden rounded-2xl border border-border bg-card text-left transition-colors hover:bg-secondary/40",
+        highlighted && "ring-2 ring-amber-400 ring-offset-2 ring-offset-background"
+      )}
+    >
+      <span
+        className={cn("w-1.5 shrink-0", severityBarClass[incident.severity])}
+        title={severityLabel(incident.severity, locale)}
+      />
+      <span className="flex min-w-0 flex-1 flex-col justify-center gap-1 px-4 py-3">
+        <span className="flex items-center gap-2">
+          <span className="truncate text-sm font-semibold">
+            <span className="mr-2 font-mono text-xs font-normal text-amber-700 dark:text-amber-300">
+              {incident.reference}
+            </span>
+            {typeLabel(incident.type, locale)}
+          </span>
+          <span className="ml-auto shrink-0 text-xs text-muted-foreground">
+            {relativeTime(incident.createdAt, locale)}
+          </span>
+        </span>
+        <span className="flex items-center gap-2 text-sm text-muted-foreground">
+          <span className="truncate">
+            {placeLabel(incident)} · {categoryLabel(incident.category, locale)}
+          </span>
+          <span className="ml-auto flex shrink-0 items-center gap-2">
+            <span
+              className={cn(
+                "max-w-[9rem] truncate text-xs",
+                owner ? "text-foreground" : "font-medium text-amber-700 dark:text-amber-300"
+              )}
+            >
+              {owner ?? t("dashboard.noOwner")}
+            </span>
+            <span
+              className={cn(
+                "rounded-full border px-2 py-0.5 text-[11px] font-medium",
+                overdue ? panelClass.danger : statusClass[incident.status]
+              )}
+            >
+              {overdue ? t("dashboard.dueDate") + " ⚠" : statusLabel(incident.status, locale)}
+            </span>
+          </span>
+        </span>
+      </span>
+    </button>
+  );
+}
+
+function AttentionChip({
+  icon: Icon,
+  label,
+  active,
+  onClick,
+}: {
+  icon: React.ComponentType<{ className?: string }>;
+  label: string;
+  active?: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-pressed={active}
+      className={cn(
+        "inline-flex min-h-10 items-center gap-2 rounded-full border px-3 text-sm font-medium transition-colors",
+        active
+          ? "border-amber-500 bg-amber-500 text-slate-950"
+          : "border-current/30 bg-background/60 hover:bg-background"
+      )}
+    >
+      <Icon className="size-4" />
+      {label}
+    </button>
+  );
+}
+
+function MetricTile({
   label,
   value,
-  hint,
   icon: Icon,
-  tone,
+  tone = "neutral",
+  loading,
 }: {
   label: string;
   value: number;
-  hint: string;
   icon: React.ComponentType<{ className?: string }>;
-  tone?: "amber" | "red" | "emerald";
+  tone?: keyof typeof chipClass;
+  loading: boolean;
 }) {
   return (
-    <Card className="py-4">
-      <CardContent className="flex items-start justify-between gap-3">
-        <div>
-          <p className="text-sm text-muted-foreground">{label}</p>
-          <p className="mt-1 text-3xl font-semibold tracking-tight">{value}</p>
-          <p className="mt-1 text-xs text-muted-foreground">{hint}</p>
-        </div>
-        <span
-          className={cn(
-            "flex size-11 items-center justify-center rounded-xl bg-secondary",
-            tone === "amber" && "bg-amber-500/15 text-amber-300",
-            tone === "red" && "bg-red-500/15 text-red-300",
-            tone === "emerald" && "bg-emerald-500/15 text-emerald-300"
-          )}
-        >
-          <Icon className="size-5" />
-        </span>
-      </CardContent>
-    </Card>
+    <div className="flex items-center gap-3 rounded-xl border border-border bg-card px-3 py-2.5">
+      <span className={cn("flex size-9 shrink-0 items-center justify-center rounded-lg", chipClass[tone])}>
+        <Icon className="size-4" />
+      </span>
+      <div className="min-w-0">
+        {loading ? (
+          <div className="h-6 w-10 animate-pulse rounded bg-muted" />
+        ) : (
+          <p className="text-xl leading-none font-semibold tracking-tight">{value}</p>
+        )}
+        <p className="mt-1 truncate text-[11px] text-muted-foreground">{label}</p>
+      </div>
+    </div>
   );
 }
 
@@ -276,9 +452,10 @@ function FilterChip({
     <button
       type="button"
       onClick={onClick}
+      aria-pressed={active}
       className={cn(
         "min-h-11 rounded-full border px-4 text-sm font-medium",
-        active ? "border-amber-400 bg-amber-500 text-slate-950" : "border-border bg-card text-foreground"
+        active ? "border-amber-500 bg-amber-500 text-slate-950" : "border-border bg-card text-foreground"
       )}
     >
       {children}

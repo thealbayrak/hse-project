@@ -46,13 +46,16 @@ export const metadata: Metadata = {
 };
 
 export const viewport: Viewport = {
-  themeColor: "#090d16",
+  themeColor: [
+    { media: "(prefers-color-scheme: light)", color: "#fafaf7" },
+    { media: "(prefers-color-scheme: dark)", color: "#090d16" },
+  ],
   width: "device-width",
   initialScale: 1,
-  maximumScale: 1,
-  userScalable: false,
+  // Pinch-zoom stays enabled (WCAG 1.4.4); the layout is built for large touch targets anyway.
+  maximumScale: 5,
   viewportFit: "cover",
-  colorScheme: "dark",
+  colorScheme: "light dark",
 };
 
 /** The language chosen in the app (cookie), else the browser's Accept-Language. */
@@ -71,7 +74,7 @@ export default async function RootLayout({ children }: LayoutProps<"/">) {
     <html
       lang={initialLocale}
       suppressHydrationWarning
-      className={`${geistSans.variable} ${geistMono.variable} dark h-full antialiased`}
+      className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
     >
       <head>
         <IosStartupImages />

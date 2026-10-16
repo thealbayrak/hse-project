@@ -1,13 +1,15 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useRef, useState, useSyncExternalStore } from "react";
 import { useRouter } from "next/navigation";
 import {
   CheckIcon,
   CloudOffIcon,
+  EyeOffIcon,
+  HistoryIcon,
   ImagePlusIcon,
   MicIcon,
-  ShieldOffIcon,
+  ShieldCheckIcon,
   SparklesIcon,
   XIcon,
 } from "lucide-react";
@@ -17,18 +19,15 @@ import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { StatutoryBanner } from "@/components/layout/statutory-banner";
 import { useVoiceCapture } from "@/hooks/use-voice-capture";
-import {
-  DEFAULT_REPORTER_NAME,
-  INCIDENT_TYPES,
-  RISK_CATEGORIES,
-  SEVERITY_LEVELS,
-} from "@/lib/constants";
+import { DEFAULT_REPORTER_NAME, INCIDENT_TYPES, RISK_CATEGORIES } from "@/lib/constants";
 import { useLanguage } from "@/lib/i18n/LanguageContext";
 import { isImageFile } from "@/lib/media";
+import { readLastSite, rememberLastSite, serverLastSite, subscribeLastSite } from "@/lib/report/last-site";
+import { deriveSeverity } from "@/lib/report/severity";
 import { useIncidentStore } from "@/lib/store/incident-store";
 import { categoryLabel, severityLabel, typeLabel } from "@/lib/format";
 import { cn } from "@/lib/utils";
-import { severityClass } from "@/lib/tones";
+import { panelClass, severityClass } from "@/lib/tones";
 import type { IncidentType, ReportDraft } from "@/lib/types";
 
 const TYPE_HINT: Record<IncidentType, string> = {
@@ -40,12 +39,18 @@ const TYPE_HINT: Record<IncidentType, string> = {
 const STEP_KEYS = ["report.stepWhat", "report.stepDetails", "report.stepReview"] as const;
 const STEP_SHORT_KEYS = ["report.stepWhatShort", "report.stepDetailsShort", "report.stepReviewShort"] as const;
 
-const EMPTY_DRAFT: ReportDraft = {
+interface Draft extends Omit<ReportDraft, "severity"> {
+  hurt: boolean | null;
+  danger: boolean | null;
+}
+
+const EMPTY_DRAFT: Draft = {
   type: null,
   siteId: "",
   locationId: "",
   category: null,
-  severity: null,
+  hurt: null,
+  danger: null,
   description: "",
   mediaUrls: [],
   photoFiles: [],
@@ -58,26 +63,40 @@ export function ReportWizard() {
   const { locale, t } = useLanguage();
   const { sites, createIncident, loading, error } = useIncidentStore();
   const [step, setStep] = useState(0);
-  const [draft, setDraft] = useState<ReportDraft>(EMPTY_DRAFT);
+  const [draft, setDraft] = useState<Draft>(EMPTY_DRAFT);
   const [submitting, setSubmitting] = useState(false);
   const [submitted, setSubmitted] = useState<{ reference: string; pending: boolean } | null>(null);
   const [dragOver, setDragOver] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const descriptionAnchor = useRef("");
+  const lastSite = useSyncExternalStore(subscribeLastSite, readLastSite, serverLastSite);
 
   const voice = useVoiceCapture((text) => {
     const base = descriptionAnchor.current;
     patch({ description: [base, text].filter(Boolean).join(" ") });
   }, locale);
 
-  const selectedSite = sites.find((site) => site.id === draft.siteId);
+  // The last-used site comes first and is pre-selected until the worker picks another.
+  const orderedSites = lastSite
+    ? [...sites].sort((a, b) => Number(b.id === lastSite.siteId) - Number(a.id === lastSite.siteId))
+    : sites;
+  const siteId = draft.siteId || (lastSite && sites.some((site) => site.id === lastSite.siteId) ? lastSite.siteId : "");
+  const selectedSite = sites.find((site) => site.id === siteId);
   const locations = selectedSite?.locations ?? [];
-  const selectedLocation = locations.find((location) => location.id === draft.locationId);
+  const locationId =
+    draft.locationId ||
+    (locations.length === 1
+      ? locations[0].id
+      : lastSite && lastSite.siteId === siteId && locations.some((item) => item.id === lastSite.locationId)
+        ? lastSite.locationId
+        : "");
+  const selectedLocation = locations.find((location) => location.id === locationId);
 
-  const step1Ready = Boolean(draft.type && draft.siteId && draft.locationId && draft.category && draft.severity);
-  const step2Ready = draft.description.trim().length >= 8;
+  const severity = draft.type ? deriveSeverity(draft.type, draft) : null;
+  const step1Ready = Boolean(draft.type && siteId && locationId);
+  const step2Ready = Boolean(severity && draft.category && draft.description.trim().length >= 8);
 
-  function patch(next: Partial<ReportDraft>) {
+  function patch(next: Partial<Draft>) {
     setDraft((current) => ({ ...current, ...next }));
   }
 
@@ -124,15 +143,15 @@ export function ReportWizard() {
   }
 
   async function submit() {
-    if (!draft.type || !draft.category || !draft.severity) return;
+    if (!draft.type || !draft.category || !severity || !siteId || !locationId) return;
     setSubmitting(true);
     try {
       const created = await createIncident({
         type: draft.type,
-        siteId: draft.siteId,
-        locationId: draft.locationId,
+        siteId,
+        locationId,
         category: draft.category,
-        severity: draft.severity,
+        severity,
         description: draft.description.trim(),
         mediaUrls: draft.mediaUrls,
         photoFiles: draft.photoFiles,
@@ -140,6 +159,7 @@ export function ReportWizard() {
         anonymous: draft.anonymous,
         reporterName: draft.anonymous ? null : DEFAULT_REPORTER_NAME,
       });
+      rememberLastSite({ siteId, locationId });
       setSubmitted({ reference: created.reference, pending: Boolean(created.pending) });
       toast.success(created.pending ? t("offline.queued") : t("toast.reportReceived"));
     } catch (caught) {
@@ -153,15 +173,7 @@ export function ReportWizard() {
   if (submitted) {
     return (
       <div className="mx-auto max-w-xl space-y-5">
-        <StatutoryBanner />
-        <div
-          className={cn(
-            "rounded-2xl border p-6 text-center",
-            submitted.pending
-              ? "border-amber-500/30 bg-amber-950/40"
-              : "border-emerald-500/30 bg-emerald-950/40"
-          )}
-        >
+        <div className={cn("rounded-2xl border p-6 text-center", submitted.pending ? panelClass.warning : panelClass.success)}>
           <div
             className={cn(
               "mx-auto mb-4 flex size-14 items-center justify-center rounded-full text-slate-950",
@@ -173,14 +185,14 @@ export function ReportWizard() {
           <h2 className="text-2xl font-semibold">
             {submitted.pending ? t("offline.queued") : t("report.received")}
           </h2>
-          <p className="mt-2 text-sm text-muted-foreground">
+          <p className="mt-2 text-sm opacity-80">
             {submitted.pending ? t("offline.queuedBody") : t("report.thankYou")}
           </p>
           {!submitted.pending && (
-            <p className="mt-4 font-mono text-lg text-amber-300">{submitted.reference}</p>
+            <p className="mt-4 font-mono text-lg text-amber-700 dark:text-amber-300">{submitted.reference}</p>
           )}
-          {draft.severity === "critical" && (
-            <p className="mt-4 rounded-xl bg-red-950/60 px-4 py-3 text-sm text-red-100">
+          {severity === "critical" && (
+            <p className={cn("mt-4 rounded-xl border px-4 py-3 text-sm", panelClass.danger)}>
               {t("statutory.criticalNow")}
             </p>
           )}
@@ -202,37 +214,34 @@ export function ReportWizard() {
             </Button>
           </div>
         </div>
+        <StatutoryBanner compact />
       </div>
     );
   }
 
   return (
     <div className="mx-auto max-w-xl space-y-5">
-      <StatutoryBanner />
-      {error && (
-        <p className="rounded-xl border border-amber-500/40 bg-amber-950/40 px-4 py-3 text-sm text-amber-100">
-          {error}
-        </p>
-      )}
+      {error && <p className={cn("rounded-xl border px-4 py-3 text-sm", panelClass.warning)}>{error}</p>}
 
-      <ol className="grid grid-cols-3 gap-2">
+      <ol className="grid grid-cols-3 gap-2" aria-label={t("report.step", { n: step + 1 })}>
         {STEP_KEYS.map((key, index) => {
           const current = index === step;
           const done = index < step;
           return (
             <li
               key={key}
+              aria-current={current ? "step" : undefined}
               className={cn(
-                "min-w-0 rounded-xl border px-1 py-3 text-center sm:px-2",
-                current && "border-amber-400/50 bg-amber-500/10",
-                done && "border-emerald-500/30 bg-emerald-500/10",
+                "min-w-0 rounded-xl border px-1 py-2.5 text-center sm:px-2",
+                current && "border-amber-500/60 bg-amber-500/10",
+                done && "border-emerald-500/40 bg-emerald-500/10",
                 !current && !done && "border-border bg-card/50"
               )}
             >
               <span className="block text-[11px] font-semibold tracking-wide text-muted-foreground uppercase">
                 {t("report.step", { n: index + 1 })}
               </span>
-              <span className="mt-1 block text-xs font-medium sm:text-sm">
+              <span className="mt-0.5 block text-xs font-medium sm:text-sm">
                 <span className="sm:hidden">{t(STEP_SHORT_KEYS[index])}</span>
                 <span className="hidden sm:inline">{t(key)}</span>
               </span>
@@ -247,20 +256,15 @@ export function ReportWizard() {
             <legend className="mb-3 text-lg font-semibold">{t("incident.whatToReport")}</legend>
             <div className="grid gap-3">
               {INCIDENT_TYPES.map((item) => (
-                <button
+                <ChoiceButton
                   key={item.id}
-                  type="button"
+                  active={draft.type === item.id}
                   onClick={() => patch({ type: item.id })}
-                  className={cn(
-                    "min-h-20 rounded-2xl border px-4 py-4 text-left transition-colors",
-                    draft.type === item.id
-                      ? "border-amber-400 bg-amber-500/15 ring-2 ring-amber-400/40"
-                      : "border-border bg-card hover:bg-secondary/60"
-                  )}
+                  className="min-h-[4.5rem]"
                 >
                   <span className="block text-base font-semibold">{typeLabel(item.id, locale)}</span>
                   <span className="mt-1 block text-sm text-muted-foreground">{t(TYPE_HINT[item.id])}</span>
-                </button>
+                </ChoiceButton>
               ))}
             </div>
           </fieldset>
@@ -271,96 +275,122 @@ export function ReportWizard() {
               <p className="mb-3 text-sm text-muted-foreground">{t("report.loadingSites")}</p>
             )}
             <div className="grid gap-2">
-              {sites.map((site) => (
-                <button
+              {orderedSites.map((site) => (
+                <ChoiceButton
                   key={site.id}
-                  type="button"
-                  onClick={() =>
-                    patch({
-                      siteId: site.id,
-                      locationId: site.locations.length === 1 ? site.locations[0].id : "",
-                    })
-                  }
-                  className={cn(
-                    "min-h-14 rounded-xl border px-4 py-3 text-left",
-                    draft.siteId === site.id
-                      ? "border-amber-400 bg-amber-500/15"
-                      : "border-border bg-card hover:bg-secondary/60"
-                  )}
+                  active={siteId === site.id}
+                  onClick={() => patch({ siteId: site.id, locationId: "" })}
+                  className="min-h-14 py-3"
                 >
-                  <span className="block font-medium">{site.name}</span>
-                  <span className="text-xs text-muted-foreground">{site.city}</span>
-                </button>
-              ))}
-            </div>
-            {!!locations.length && (
-              <div className="mt-3 grid grid-cols-2 gap-2">
-                {locations.map((location) => (
-                  <button
-                    key={location.id}
-                    type="button"
-                    onClick={() => patch({ locationId: location.id })}
-                    className={cn(
-                      "min-h-14 rounded-xl border px-3 py-3 text-left text-sm font-medium",
-                      draft.locationId === location.id
-                        ? "border-amber-400 bg-amber-500/15"
-                        : "border-border bg-card hover:bg-secondary/60"
+                  <span className="flex items-center gap-2">
+                    <span className="block font-medium">{site.name}</span>
+                    {lastSite?.siteId === site.id && (
+                      <span className="inline-flex items-center gap-1 rounded-full bg-amber-500/15 px-2 py-0.5 text-[11px] font-medium text-amber-700 dark:text-amber-300">
+                        <HistoryIcon className="size-3" />
+                        {t("report.lastUsed")}
+                      </span>
                     )}
-                  >
-                    {location.name}
-                  </button>
-                ))}
-              </div>
+                  </span>
+                  <span className="text-xs text-muted-foreground">{site.city}</span>
+                </ChoiceButton>
+              ))}
+            </div>
+            {locations.length > 1 && (
+              <>
+                <p className="mt-4 mb-2 text-sm font-medium">{t("incident.whichArea")}</p>
+                <div className="grid grid-cols-2 gap-2">
+                  {locations.map((location) => (
+                    <ChoiceButton
+                      key={location.id}
+                      active={locationId === location.id}
+                      onClick={() => patch({ locationId: location.id })}
+                      className="min-h-14 px-3 py-3 text-sm font-medium"
+                    >
+                      {location.name}
+                    </ChoiceButton>
+                  ))}
+                </div>
+              </>
             )}
-          </fieldset>
-
-          <fieldset>
-            <legend className="mb-3 text-lg font-semibold">{t("incident.whatRisk")}</legend>
-            <div className="flex flex-wrap gap-2">
-              {RISK_CATEGORIES.map((item) => (
-                <button
-                  key={item.id}
-                  type="button"
-                  onClick={() => patch({ category: item.id })}
-                  className={cn(
-                    "min-h-12 rounded-full border px-4 text-sm font-medium",
-                    draft.category === item.id
-                      ? "border-amber-400 bg-amber-500 text-slate-950"
-                      : "border-border bg-card text-foreground hover:bg-secondary/60"
-                  )}
-                >
-                  {categoryLabel(item.id, locale)}
-                </button>
-              ))}
-            </div>
-          </fieldset>
-
-          <fieldset>
-            <legend className="mb-3 text-lg font-semibold">{t("incident.howSerious")}</legend>
-            <div className="grid grid-cols-2 gap-2">
-              {SEVERITY_LEVELS.map((item) => (
-                <button
-                  key={item.id}
-                  type="button"
-                  onClick={() => patch({ severity: item.id })}
-                  className={cn(
-                    "min-h-20 rounded-2xl border px-3 py-3 text-left",
-                    draft.severity === item.id
-                      ? cn("ring-2", severityClass[item.id], "ring-current/30")
-                      : "border-border bg-card hover:bg-secondary/60"
-                  )}
-                >
-                  <span className="block font-semibold">{severityLabel(item.id, locale)}</span>
-                  <span className="text-xs text-muted-foreground">{t(`severity.${item.id}Hint`)}</span>
-                </button>
-              ))}
-            </div>
           </fieldset>
         </section>
       )}
 
       {step === 1 && (
         <section className="space-y-6">
+          <fieldset>
+            <legend className="mb-1 text-lg font-semibold">{t("incident.howSerious")}</legend>
+            <p className="mb-3 text-sm text-muted-foreground">{t("report.answerBoth")}</p>
+            <div className="space-y-3">
+              <YesNoQuestion
+                label={t("report.hurtQuestion")}
+                value={draft.hurt}
+                onChange={(hurt) => patch({ hurt })}
+                yes={t("buttons.yes")}
+                no={t("buttons.no")}
+              />
+              <YesNoQuestion
+                label={t("report.dangerQuestion")}
+                value={draft.danger}
+                onChange={(danger) => patch({ danger })}
+                yes={t("buttons.yes")}
+                no={t("buttons.no")}
+              />
+            </div>
+            {severity && (
+              <p className={cn("mt-3 inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-sm", severityClass[severity])}>
+                <ShieldCheckIcon className="size-4" />
+                {t("report.severityDerived", { level: severityLabel(severity, locale) })}
+              </p>
+            )}
+          </fieldset>
+
+          <fieldset>
+            <legend className="mb-3 text-lg font-semibold">{t("incident.whatRisk")}</legend>
+            <div className="grid grid-cols-2 gap-2">
+              {RISK_CATEGORIES.map((item) => (
+                <ChoiceButton
+                  key={item.id}
+                  active={draft.category === item.id}
+                  onClick={() => patch({ category: item.id })}
+                  className="min-h-14 px-3 py-3 text-sm font-medium"
+                >
+                  {categoryLabel(item.id, locale)}
+                </ChoiceButton>
+              ))}
+            </div>
+          </fieldset>
+
+          <div>
+            <div className="mb-3 flex items-center justify-between gap-3">
+              <h2 className="text-lg font-semibold">{t("report.whatHappened")}</h2>
+              <Button
+                type="button"
+                variant="outline"
+                className="h-12 gap-2 px-3"
+                onClick={() => void toggleVoice()}
+              >
+                {voice.recording ? (
+                  <SparklesIcon className="size-4 animate-pulse" />
+                ) : (
+                  <MicIcon className="size-4" />
+                )}
+                {voice.recording ? t("buttons.listening") : t("buttons.recordVoice")}
+              </Button>
+            </div>
+            <Textarea
+              value={draft.description}
+              onChange={(event) => patch({ description: event.target.value })}
+              placeholder={t("report.placeholder")}
+              className="min-h-36 text-base"
+            />
+            {(voice.audioBlob || voice.recording) && (
+              <p className="mt-2 text-xs text-muted-foreground">
+                {voice.recording ? t("report.recordingNote") : t("report.voiceAttached")}
+              </p>
+            )}
+          </div>
+
           <div>
             <h2 className="text-lg font-semibold">{t("report.addPhoto")}</h2>
             <p className="mb-3 text-sm text-muted-foreground">{t("report.addPhotoHint")}</p>
@@ -389,11 +419,11 @@ export function ReportWizard() {
                 void addFiles(event.dataTransfer.files);
               }}
               className={cn(
-                "flex min-h-36 w-full flex-col items-center justify-center rounded-2xl border-2 border-dashed px-4 text-center",
-                dragOver ? "border-amber-400 bg-amber-500/10" : "border-border bg-card"
+                "flex min-h-28 w-full flex-col items-center justify-center rounded-2xl border-2 border-dashed px-4 text-center",
+                dragOver ? "border-amber-500 bg-amber-500/10" : "border-border bg-card"
               )}
             >
-              <ImagePlusIcon className="mb-2 size-8 text-amber-400" />
+              <ImagePlusIcon className="mb-2 size-7 text-amber-600 dark:text-amber-400" />
               <span className="font-medium">{t("report.dropPhoto")}</span>
               <span className="text-sm text-muted-foreground">{t("report.tapCamera")}</span>
             </button>
@@ -402,11 +432,7 @@ export function ReportWizard() {
                 {draft.mediaUrls.map((url, index) => (
                   <div key={url.slice(0, 24) + index} className="relative">
                     {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img
-                      src={url}
-                      alt={`Photo ${index + 1}`}
-                      className="h-20 w-full rounded-lg object-cover"
-                    />
+                    <img src={url} alt={`Photo ${index + 1}`} className="h-20 w-full rounded-lg object-cover" />
                     <button
                       type="button"
                       className="absolute -top-1.5 -right-1.5 flex size-8 items-center justify-center rounded-full bg-slate-950 text-white"
@@ -425,50 +451,25 @@ export function ReportWizard() {
             )}
           </div>
 
-          <div>
-            <div className="mb-3 flex items-center justify-between gap-3">
-              <h2 className="text-lg font-semibold">{t("report.whatHappened")}</h2>
-              <Button
-                type="button"
-                variant="outline"
-                className="h-12 gap-2 px-3"
-                onClick={() => void toggleVoice()}
-              >
-                {voice.recording ? (
-                  <SparklesIcon className="size-4 animate-pulse" />
-                ) : (
-                  <MicIcon className="size-4" />
-                )}
-                {voice.recording ? t("buttons.listening") : t("buttons.recordVoice")}
-              </Button>
-            </div>
-            <Textarea
-              value={draft.description}
-              onChange={(event) => patch({ description: event.target.value })}
-              placeholder={t("report.placeholder")}
-              className="min-h-40 text-base"
-            />
-            {(voice.audioBlob || voice.recording) && (
-              <p className="mt-2 text-xs text-muted-foreground">
-                {voice.recording ? t("report.recordingNote") : t("report.voiceAttached")}
-              </p>
-            )}
-          </div>
-
-          <label className="flex min-h-16 items-center justify-between gap-4 rounded-2xl border border-border bg-card px-4 py-3">
-            <span className="flex items-start gap-3">
-              <ShieldOffIcon className="mt-0.5 size-5 text-amber-400" />
-              <span>
-                <span className="block font-medium">{t("report.anonymous")}</span>
-                <span className="text-sm text-muted-foreground">{t("report.anonymousHint")}</span>
+          <div className={cn("rounded-2xl border p-4", panelClass.info)}>
+            <label className="flex min-h-12 items-center justify-between gap-4">
+              <span className="flex items-start gap-3">
+                <EyeOffIcon className="mt-0.5 size-5 shrink-0" />
+                <span>
+                  <span className="block font-medium">{t("report.anonymous")}</span>
+                  <span className="text-sm opacity-80">{t("report.anonymousHint")}</span>
+                </span>
               </span>
-            </span>
-            <Switch
-              checked={draft.anonymous}
-              onCheckedChange={(checked) => patch({ anonymous: checked })}
-              className="h-7 w-12"
-            />
-          </label>
+              <Switch
+                checked={draft.anonymous}
+                onCheckedChange={(checked) => patch({ anonymous: checked })}
+                className="h-7 w-12"
+              />
+            </label>
+            <p className="mt-3 border-t border-current/15 pt-3 text-xs leading-relaxed opacity-80">
+              <strong className="font-semibold">{t("report.whoSeesTitle")}</strong> {t("report.whoSeesBody")}
+            </p>
+          </div>
         </section>
       )}
 
@@ -478,21 +479,14 @@ export function ReportWizard() {
           <ReviewRow label={t("report.type")} value={draft.type ? typeLabel(draft.type, locale) : "—"} />
           <ReviewRow
             label={t("report.place")}
-            value={
-              selectedSite && selectedLocation
-                ? `${selectedLocation.name} · ${selectedSite.name}`
-                : "—"
-            }
+            value={selectedSite && selectedLocation ? `${selectedLocation.name} · ${selectedSite.name}` : "—"}
           />
-          <ReviewRow
-            label={t("report.risk")}
-            value={draft.category ? categoryLabel(draft.category, locale) : "—"}
-          />
+          <ReviewRow label={t("report.risk")} value={draft.category ? categoryLabel(draft.category, locale) : "—"} />
           <div className="flex items-center justify-between rounded-xl border border-border bg-card px-4 py-3">
             <span className="text-sm text-muted-foreground">{t("report.severity")}</span>
-            {draft.severity && (
-              <span className={cn("rounded-full border px-3 py-1 text-sm font-medium", severityClass[draft.severity])}>
-                {severityLabel(draft.severity, locale)}
+            {severity && (
+              <span className={cn("rounded-full border px-3 py-1 text-sm font-medium", severityClass[severity])}>
+                {severityLabel(severity, locale)}
               </span>
             )}
           </div>
@@ -517,11 +511,12 @@ export function ReportWizard() {
               ))}
             </div>
           )}
-          {draft.severity === "critical" && (
-            <p className="rounded-xl border border-red-500/40 bg-red-950/50 px-4 py-3 text-sm text-red-100">
+          {severity === "critical" && (
+            <p className={cn("rounded-xl border px-4 py-3 text-sm", panelClass.danger)}>
               {t("statutory.criticalCheck")}
             </p>
           )}
+          <StatutoryBanner compact />
         </section>
       )}
 
@@ -558,6 +553,76 @@ export function ReportWizard() {
                 : t("buttons.sendReport")}
           </Button>
         )}
+      </div>
+    </div>
+  );
+}
+
+function ChoiceButton({
+  active,
+  onClick,
+  className,
+  children,
+}: {
+  active: boolean;
+  onClick: () => void;
+  className?: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-pressed={active}
+      className={cn(
+        "rounded-2xl border px-4 py-4 text-left transition-colors",
+        active
+          ? "border-amber-500 bg-amber-500/15 ring-2 ring-amber-500/40"
+          : "border-border bg-card hover:bg-secondary/60",
+        className
+      )}
+    >
+      {children}
+    </button>
+  );
+}
+
+function YesNoQuestion({
+  label,
+  value,
+  onChange,
+  yes,
+  no,
+}: {
+  label: string;
+  value: boolean | null;
+  onChange: (value: boolean) => void;
+  yes: string;
+  no: string;
+}) {
+  return (
+    <div className="rounded-2xl border border-border bg-card p-3">
+      <p className="mb-2 font-medium">{label}</p>
+      <div role="radiogroup" aria-label={label} className="grid grid-cols-2 gap-2">
+        {[true, false].map((option) => (
+          <button
+            key={String(option)}
+            type="button"
+            role="radio"
+            aria-checked={value === option}
+            onClick={() => onChange(option)}
+            className={cn(
+              "min-h-14 rounded-xl border text-base font-semibold transition-colors",
+              value === option
+                ? option
+                  ? "border-red-500 bg-red-500 text-white"
+                  : "border-emerald-500 bg-emerald-500 text-slate-950"
+                : "border-border bg-background hover:bg-secondary/60"
+            )}
+          >
+            {option ? yes : no}
+          </button>
+        ))}
       </div>
     </div>
   );

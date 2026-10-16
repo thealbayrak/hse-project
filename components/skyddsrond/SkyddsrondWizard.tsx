@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useRef, useState, type ReactNode } from "react";
+import { useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import {
@@ -23,6 +23,7 @@ import { SKYDDSROND_DOMAINS, skyddsrondTitle } from "@/lib/skyddsrond/checklist"
 import { useIncidentStore } from "@/lib/store/incident-store";
 import { cn } from "@/lib/utils";
 import { isImageFile } from "@/lib/media";
+import { panelClass } from "@/lib/tones";
 import type { CreateSafetyWalkItemInput, SafetyWalkDomainId, SafetyWalkItemStatus, Site } from "@/lib/types";
 
 type ItemDraft = {
@@ -44,12 +45,17 @@ function emptyItems(): Record<string, ItemDraft> {
 }
 
 function domainKeys(id: SafetyWalkDomainId) {
-  if (id === "fall-protection") return { en: "walk.domainFall", sv: "walk.domainFallSv" };
-  if (id === "order-cleanliness") return { en: "walk.domainOrder", sv: "walk.domainOrderSv" };
-  if (id === "scaffolding-ladders") return { en: "walk.domainScaffold", sv: "walk.domainScaffoldSv" };
-  if (id === "ppe") return { en: "walk.domainPpe", sv: "walk.domainPpeSv" };
-  return { en: "walk.domainFire", sv: "walk.domainFireSv" };
+  if (id === "fall-protection") return { local: "walk.domainFall", sv: "walk.domainFallSv" };
+  if (id === "order-cleanliness") return { local: "walk.domainOrder", sv: "walk.domainOrderSv" };
+  if (id === "scaffolding-ladders") return { local: "walk.domainScaffold", sv: "walk.domainScaffoldSv" };
+  if (id === "ppe") return { local: "walk.domainPpe", sv: "walk.domainPpeSv" };
+  return { local: "walk.domainFire", sv: "walk.domainFireSv" };
 }
+
+// Step 0 = walk details, steps 1..N = one checklist section each, last = review.
+const SETUP_STEP = 0;
+const REVIEW_STEP = SKYDDSROND_DOMAINS.length + 1;
+const TOTAL_STEPS = REVIEW_STEP + 1;
 
 export function SkyddsrondWizard({
   onCompleted,
@@ -60,15 +66,17 @@ export function SkyddsrondWizard({
   onCancel?: () => void;
   showFullPageLink?: boolean;
 }) {
-  const { t } = useLanguage();
+  const { locale, t } = useLanguage();
   const { sites, createSafetyWalk } = useIncidentStore();
   const router = useRouter();
+  const [step, setStep] = useState(SETUP_STEP);
   const [chosenSiteId, setSiteId] = useState("");
   const [title, setTitle] = useState("");
   const [skyddsombudName, setSkyddsombudName] = useState("");
   const [skyddsombudRole, setSkyddsombudRole] = useState("Skyddsombud");
   const [items, setItems] = useState<Record<string, ItemDraft>>(emptyItems);
   const [submitting, setSubmitting] = useState(false);
+  const topRef = useRef<HTMLDivElement>(null);
 
   // Default to the first site until the user picks one.
   const siteId = chosenSiteId || sites[0]?.id || "";
@@ -83,8 +91,22 @@ export function SkyddsrondWizard({
   );
   const walkTitle = title.trim() || generatedTitle;
 
+  const missingNotes = SKYDDSROND_DOMAINS.flatMap((domain) => domain.items).filter((item) => {
+    const draft = items[item.key];
+    return draft.status === "deviation" && draft.notes.trim().length < 8;
+  });
+
   function patchItem(key: string, next: Partial<ItemDraft>) {
     setItems((current) => ({ ...current, [key]: { ...current[key], ...next } }));
+  }
+
+  function goTo(next: number) {
+    if (next === SETUP_STEP + 1 && !skyddsombudName.trim()) {
+      toast.error(t("toast.walkNeedRep"));
+      return;
+    }
+    setStep(Math.min(Math.max(next, SETUP_STEP), REVIEW_STEP));
+    topRef.current?.scrollIntoView({ block: "start", behavior: "smooth" });
   }
 
   async function submit() {
@@ -100,11 +122,7 @@ export function SkyddsrondWizard({
       toast.error(t("toast.walkNeedAll"));
       return;
     }
-    const missingNotes = SKYDDSROND_DOMAINS.flatMap((domain) => domain.items).find((item) => {
-      const draft = items[item.key];
-      return draft.status === "deviation" && draft.notes.trim().length < 8;
-    });
-    if (missingNotes) {
+    if (missingNotes.length) {
       toast.error(t("toast.walkNeedNotes"));
       return;
     }
@@ -134,9 +152,7 @@ export function SkyddsrondWizard({
         items: payload,
       });
       const open = created.items.filter((item) => item.status === "deviation").length;
-      toast.success(
-        open ? t("toast.walkSavedActions", { count: open }) : t("toast.walkSaved")
-      );
+      toast.success(open ? t("toast.walkSavedActions", { count: open }) : t("toast.walkSaved"));
       if (onCompleted) onCompleted();
       else router.push("/dashboard");
     } catch (caught) {
@@ -147,120 +163,200 @@ export function SkyddsrondWizard({
     }
   }
 
-  return (
-    <div className="space-y-5">
-      <StatutoryBanner notice="sam" />
+  const domain = step >= 1 && step <= SKYDDSROND_DOMAINS.length ? SKYDDSROND_DOMAINS[step - 1] : null;
+  const stepLabel =
+    step === SETUP_STEP
+      ? t("walk.setup")
+      : step === REVIEW_STEP
+        ? t("walk.summary")
+        : locale === "sv"
+          ? t(domainKeys(domain!.id).sv)
+          : t(domainKeys(domain!.id).local);
 
-      {showFullPageLink && (
-        <p className="text-xs text-muted-foreground">
-          {t("walk.fullPage")}{" "}
-          <Link href="/skyddsrond" className="font-medium text-amber-300 underline-offset-4 hover:underline">
-            {t("walk.openFull")}
-          </Link>
-        </p>
+  return (
+    <div ref={topRef} className="space-y-5 scroll-mt-24">
+      {/* Progress */}
+      <div>
+        <div className="flex items-center justify-between text-xs text-muted-foreground">
+          <span>{t("walk.sectionOf", { n: step + 1, total: TOTAL_STEPS })}</span>
+          <span>
+            {t("walk.assessed", { done: assessed, total })}
+            {deviations ? ` · ${t("walk.deviationCount", { count: deviations })}` : ""}
+          </span>
+        </div>
+        <div className="mt-2 h-2 overflow-hidden rounded-full bg-secondary" role="progressbar" aria-valuemin={0} aria-valuemax={TOTAL_STEPS} aria-valuenow={step + 1}>
+          <div className="h-full rounded-full bg-amber-500 transition-[width]" style={{ width: `${((step + 1) / TOTAL_STEPS) * 100}%` }} />
+        </div>
+        <h3 className="mt-3 text-lg font-semibold tracking-tight">{stepLabel}</h3>
+        {domain && locale !== "sv" && (
+          <p className="text-sm text-muted-foreground">{t(domainKeys(domain.id).sv)}</p>
+        )}
+      </div>
+
+      {step === SETUP_STEP && (
+        <div className="space-y-5">
+          <StatutoryBanner notice="sam" compact />
+
+          {showFullPageLink && (
+            <p className="text-xs text-muted-foreground">
+              {t("walk.fullPage")}{" "}
+              <Link href="/skyddsrond" className="font-medium text-amber-700 underline-offset-4 hover:underline dark:text-amber-300">
+                {t("walk.openFull")}
+              </Link>
+            </p>
+          )}
+
+          <SitePicker sites={sites} siteId={siteId} onChange={setSiteId} label={t("walk.site")} />
+
+          <div className="space-y-2">
+            <Label htmlFor="walk-title">{t("walk.walkTitle")}</Label>
+            <Input
+              id="walk-title"
+              value={title}
+              onChange={(event) => setTitle(event.target.value)}
+              placeholder={generatedTitle}
+              className="h-12"
+            />
+          </div>
+
+          <div className="grid gap-3 sm:grid-cols-2">
+            <div className="space-y-2">
+              <Label htmlFor="skyddsombud">{t("walk.skyddsombud")}</Label>
+              <Input
+                id="skyddsombud"
+                value={skyddsombudName}
+                onChange={(event) => setSkyddsombudName(event.target.value)}
+                placeholder={t("walk.name")}
+                className="h-12"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="skyddsombud-role">{t("walk.role")}</Label>
+              <Input
+                id="skyddsombud-role"
+                value={skyddsombudRole}
+                onChange={(event) => setSkyddsombudRole(event.target.value)}
+                placeholder="Skyddsombud"
+                className="h-12"
+              />
+            </div>
+          </div>
+
+          <div className="flex flex-wrap gap-2">
+            {SAFETY_OFFICERS.map((officer) => (
+              <button
+                key={officer.id}
+                type="button"
+                onClick={() => {
+                  setSkyddsombudName(officer.name);
+                  setSkyddsombudRole(officer.role);
+                }}
+                className={cn(
+                  "min-h-11 rounded-full border px-3 text-sm",
+                  skyddsombudName === officer.name
+                    ? "border-amber-500 bg-amber-500 text-slate-950"
+                    : "border-border bg-card text-muted-foreground hover:bg-secondary/70"
+                )}
+              >
+                {officer.name}
+              </button>
+            ))}
+          </div>
+        </div>
       )}
 
-      <div className="space-y-2">
-        <Label htmlFor="walk-title">{t("walk.walkTitle")}</Label>
-        <Input
-          id="walk-title"
-          value={title}
-          onChange={(event) => setTitle(event.target.value)}
-          placeholder={generatedTitle}
-          className="h-12"
-        />
-      </div>
-
-      <SitePicker sites={sites} siteId={siteId} onChange={setSiteId} label={t("walk.site")} />
-
-      <div className="grid gap-3 sm:grid-cols-2">
-        <div className="space-y-2">
-          <Label htmlFor="skyddsombud">{t("walk.skyddsombud")}</Label>
-          <Input
-            id="skyddsombud"
-            value={skyddsombudName}
-            onChange={(event) => setSkyddsombudName(event.target.value)}
-            placeholder={t("walk.name")}
-            className="h-12"
-          />
+      {domain && (
+        <div className="space-y-3">
+          {domain.items.map((item) => (
+            <ChecklistRow
+              key={item.key}
+              itemKey={item.key}
+              title={t(`walk.${item.key}`)}
+              prompt={t(`walk.${item.key}Prompt`)}
+              draft={items[item.key]}
+              onStatus={(status) => patchItem(item.key, { status })}
+              onNotes={(notes) => patchItem(item.key, { notes })}
+              onPhoto={(photoFile, photoPreview) => patchItem(item.key, { photoFile, photoPreview })}
+            />
+          ))}
         </div>
-        <div className="space-y-2">
-          <Label htmlFor="skyddsombud-role">{t("walk.role")}</Label>
-          <Input
-            id="skyddsombud-role"
-            value={skyddsombudRole}
-            onChange={(event) => setSkyddsombudRole(event.target.value)}
-            placeholder="Skyddsombud"
-            className="h-12"
-          />
-        </div>
-      </div>
+      )}
 
-      <div className="flex flex-wrap gap-2">
-        {SAFETY_OFFICERS.map((officer) => (
-          <button
-            key={officer.id}
-            type="button"
-            onClick={() => {
-              setSkyddsombudName(officer.name);
-              setSkyddsombudRole(officer.role);
-            }}
-            className={cn(
-              "min-h-11 rounded-full border px-3 text-sm",
-              skyddsombudName === officer.name
-                ? "border-amber-400 bg-amber-500 text-slate-950"
-                : "border-border bg-card text-muted-foreground hover:bg-secondary/70"
+      {step === REVIEW_STEP && (
+        <div className="space-y-4">
+          <div className={cn("rounded-2xl border p-4", assessed < total || missingNotes.length ? panelClass.warning : panelClass.success)}>
+            <p className="font-medium">
+              {assessed < total ? t("walk.missing", { n: total - assessed }) : t("walk.allAssessed")}
+            </p>
+            {missingNotes.length > 0 && (
+              <p className="mt-1 text-sm opacity-80">{t("toast.walkNeedNotes")}</p>
             )}
-          >
-            {officer.name}
-          </button>
-        ))}
-      </div>
+            <p className="mt-1 text-sm opacity-80">
+              {walkTitle} · {skyddsombudName || "—"}
+              {skyddsombudRole ? ` · ${skyddsombudRole}` : ""}
+            </p>
+          </div>
 
-      <p className="text-sm text-muted-foreground">
-        {t("walk.assessed", { done: assessed, total })}
-        {deviations ? ` · ${t("walk.deviationCount", { count: deviations })}` : ""}
-      </p>
+          <div className="space-y-2">
+            {SKYDDSROND_DOMAINS.map((section, index) => {
+              const sectionItems = section.items.map((item) => ({ item, draft: items[item.key] }));
+              const done = sectionItems.filter(({ draft }) => draft.status).length;
+              const dev = sectionItems.filter(({ draft }) => draft.status === "deviation");
+              return (
+                <button
+                  key={section.id}
+                  type="button"
+                  onClick={() => goTo(index + 1)}
+                  className="flex w-full items-center justify-between gap-3 rounded-xl border border-border bg-card px-4 py-3 text-left hover:bg-secondary/60"
+                >
+                  <span>
+                    <span className="block text-sm font-medium">
+                      {locale === "sv" ? t(domainKeys(section.id).sv) : t(domainKeys(section.id).local)}
+                    </span>
+                    {dev.length > 0 && (
+                      <span className="mt-1 block text-xs text-red-700 dark:text-red-300">
+                        {dev.map(({ item }) => t(`walk.${item.key}`)).join(" · ")}
+                      </span>
+                    )}
+                  </span>
+                  <span
+                    className={cn(
+                      "shrink-0 rounded-full border px-2.5 py-1 text-xs font-medium",
+                      done === section.items.length ? panelClass.success : panelClass.warning
+                    )}
+                  >
+                    {done}/{section.items.length}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
 
-      <div className="space-y-4">
-        {SKYDDSROND_DOMAINS.map((domain) => (
-          <section key={domain.id} className="rounded-2xl border border-border bg-card/70 p-4">
-            <h3 className="text-sm font-semibold tracking-wide text-amber-300 uppercase">
-              {t(domainKeys(domain.id).sv)}
-              <span className="ml-2 font-medium tracking-normal text-muted-foreground normal-case">
-                {t(domainKeys(domain.id).en)}
-              </span>
-            </h3>
-            <div className="mt-3 space-y-3">
-              {domain.items.map((item) => (
-                <ChecklistRow
-                  key={item.key}
-                  itemKey={item.key}
-                  title={t(`walk.${item.key}`)}
-                  prompt={t(`walk.${item.key}Prompt`)}
-                  draft={items[item.key]}
-                  onStatus={(status) => patchItem(item.key, { status })}
-                  onNotes={(notes) => patchItem(item.key, { notes })}
-                  onPhoto={(photoFile, photoPreview) =>
-                    patchItem(item.key, { photoFile, photoPreview })
-                  }
-                />
-              ))}
-            </div>
-          </section>
-        ))}
-      </div>
-
-      <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
-        {onCancel && (
-          <Button type="button" variant="outline" className="h-12" onClick={onCancel}>
-            {t("buttons.cancel")}
+      <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-between">
+        <div className="flex gap-2">
+          {onCancel && step === SETUP_STEP && (
+            <Button type="button" variant="outline" className="h-12" onClick={onCancel}>
+              {t("buttons.cancel")}
+            </Button>
+          )}
+          {step > SETUP_STEP && (
+            <Button type="button" variant="outline" className="h-12" onClick={() => goTo(step - 1)}>
+              {t("buttons.back")}
+            </Button>
+          )}
+        </div>
+        {step < REVIEW_STEP ? (
+          <Button className="h-12 min-w-44" onClick={() => goTo(step + 1)}>
+            {t("buttons.next")}
+          </Button>
+        ) : (
+          <Button className="h-12 min-w-44" disabled={submitting} onClick={() => void submit()}>
+            <ClipboardCheckIcon className="size-4" />
+            {submitting ? t("buttons.saving") : t("buttons.submitWalk")}
           </Button>
         )}
-        <Button className="h-12 min-w-44" disabled={submitting} onClick={() => void submit()}>
-          <ClipboardCheckIcon className="size-4" />
-          {submitting ? t("buttons.saving") : t("buttons.submitWalk")}
-        </Button>
       </div>
     </div>
   );
@@ -286,10 +382,11 @@ function SitePicker({
             key={site.id}
             type="button"
             onClick={() => onChange(site.id)}
+            aria-pressed={siteId === site.id}
             className={cn(
               "min-h-14 rounded-xl border px-3 py-2 text-left",
               siteId === site.id
-                ? "border-amber-400 bg-amber-500/15"
+                ? "border-amber-500 bg-amber-500/15"
                 : "border-border bg-background hover:bg-secondary/60"
             )}
           >
@@ -331,44 +428,47 @@ function ChecklistRow({
     onPhoto(file, URL.createObjectURL(file));
   }
 
+  const options: { status: SafetyWalkItemStatus; icon: React.ComponentType<{ className?: string }>; label: string; sv: string }[] = [
+    { status: "ok", icon: CheckIcon, label: t("walk.ok"), sv: t("walk.godkand") },
+    { status: "deviation", icon: TriangleAlertIcon, label: t("walk.deviation"), sv: t("walk.avvikelse") },
+    { status: "na", icon: CircleSlashIcon, label: t("walk.na"), sv: t("walk.ejRelevant") },
+  ];
+
   return (
-    <div className="rounded-xl border border-border/80 bg-background/60 p-3">
+    <div className="rounded-xl border border-border/80 bg-card p-3">
       <p className="text-sm font-medium">{title}</p>
       <p className="mt-0.5 text-xs text-muted-foreground">{prompt}</p>
-      <div className="mt-3 grid grid-cols-3 gap-2">
-        <StatusButton
-          active={draft.status === "ok"}
-          tone="ok"
-          onClick={() => onStatus("ok")}
-        >
-          <CheckIcon className="size-4" />
-          {locale === "sv" ? t("walk.godkand") : t("walk.ok")}
-          <span className="block text-[10px] font-normal opacity-80">
-            {locale === "sv" ? t("walk.ok") : t("walk.godkand")}
-          </span>
-        </StatusButton>
-        <StatusButton
-          active={draft.status === "deviation"}
-          tone="deviation"
-          onClick={() => onStatus("deviation")}
-        >
-          <TriangleAlertIcon className="size-4" />
-          {locale === "sv" ? t("walk.avvikelse") : t("walk.deviation")}
-          <span className="block text-[10px] font-normal opacity-80">
-            {locale === "sv" ? t("walk.deviation") : t("walk.avvikelse")}
-          </span>
-        </StatusButton>
-        <StatusButton
-          active={draft.status === "na"}
-          tone="na"
-          onClick={() => onStatus("na")}
-        >
-          <CircleSlashIcon className="size-4" />
-          {locale === "sv" ? t("walk.ejRelevant") : t("walk.na")}
-          <span className="block text-[10px] font-normal opacity-80">
-            {locale === "sv" ? t("walk.na") : t("walk.ejRelevant")}
-          </span>
-        </StatusButton>
+      <div role="radiogroup" aria-label={title} className="mt-3 grid grid-cols-3 gap-1 rounded-xl bg-secondary p-1">
+        {options.map((option) => {
+          const active = draft.status === option.status;
+          return (
+            <button
+              key={option.status}
+              type="button"
+              role="radio"
+              aria-checked={active}
+              onClick={() => onStatus(option.status)}
+              className={cn(
+                "flex min-h-12 flex-col items-center justify-center rounded-lg px-1 text-xs font-semibold leading-tight transition-colors",
+                active
+                  ? option.status === "ok"
+                    ? "bg-emerald-500 text-slate-950 shadow-sm"
+                    : option.status === "deviation"
+                      ? "bg-red-500 text-white shadow-sm"
+                      : "bg-slate-400 text-slate-950 shadow-sm"
+                  : "text-muted-foreground hover:text-foreground"
+              )}
+            >
+              <span className="flex items-center gap-1">
+                <option.icon className="size-3.5" />
+                {option.label}
+              </span>
+              {locale !== "sv" && (
+                <span className="text-[10px] font-normal opacity-80">{option.sv}</span>
+              )}
+            </button>
+          );
+        })}
       </div>
 
       {draft.status === "deviation" && (
@@ -390,23 +490,14 @@ function ChecklistRow({
               className="sr-only"
               onChange={(event) => attach(event.target.files?.[0] ?? null)}
             />
-            <Button
-              type="button"
-              variant="outline"
-              className="h-12"
-              onClick={() => fileRef.current?.click()}
-            >
+            <Button type="button" variant="outline" className="h-12" onClick={() => fileRef.current?.click()}>
               <CameraIcon className="size-4" />
               {t("buttons.attachPhoto")}
             </Button>
             {draft.photoPreview && (
               <div className="relative">
                 {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img
-                  src={draft.photoPreview}
-                  alt="Deviation evidence"
-                  className="h-12 w-16 rounded-lg object-cover"
-                />
+                <img src={draft.photoPreview} alt="Deviation evidence" className="h-12 w-16 rounded-lg object-cover" />
                 <button
                   type="button"
                   className="absolute -top-1 -right-1 flex size-5 items-center justify-center rounded-full bg-red-600 text-white"
@@ -423,41 +514,5 @@ function ChecklistRow({
         </div>
       )}
     </div>
-  );
-}
-
-function StatusButton({
-  active,
-  tone,
-  onClick,
-  children,
-}: {
-  active: boolean;
-  tone: "ok" | "deviation" | "na";
-  onClick: () => void;
-  children: ReactNode;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={cn(
-        "flex min-h-14 flex-col items-center justify-center rounded-xl border px-1 text-xs font-semibold leading-tight",
-        tone === "ok" &&
-          (active
-            ? "border-emerald-400 bg-emerald-500 text-slate-950"
-            : "border-emerald-500/30 bg-emerald-950/20 text-emerald-200"),
-        tone === "deviation" &&
-          (active
-            ? "border-red-400 bg-red-500 text-white"
-            : "border-red-500/35 bg-red-950/30 text-red-200"),
-        tone === "na" &&
-          (active
-            ? "border-slate-400 bg-slate-400 text-slate-950"
-            : "border-border bg-secondary/40 text-muted-foreground")
-      )}
-    >
-      {children}
-    </button>
   );
 }

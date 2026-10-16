@@ -79,6 +79,8 @@ export interface UpdateCapaInput {
   dueDate: string;
   status: IncidentStatus;
   notes: string;
+  /** Optional correction of the reporter-derived severity by the safety officer. */
+  severity?: Severity;
 }
 
 export interface DashboardMetrics {

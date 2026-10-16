@@ -106,8 +106,8 @@ export function PWAInstallBanner() {
 
   return (
     <div className="pointer-events-none fixed inset-x-0 z-50 px-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] max-md:bottom-16 md:bottom-3">
-      <div className="pointer-events-auto mx-auto flex max-w-lg items-center gap-3 rounded-2xl border border-amber-500/30 bg-slate-950/95 px-3 py-2.5 shadow-[0_12px_40px_rgba(0,0,0,0.45)] backdrop-blur-md">
-        <p className="min-w-0 flex-1 text-[13px] leading-snug text-slate-100">
+      <div className="pointer-events-auto mx-auto flex max-w-lg items-center gap-3 rounded-2xl border border-amber-500/40 bg-popover/95 px-3 py-2.5 shadow-[0_12px_40px_rgba(0,0,0,0.25)] backdrop-blur-md">
+        <p className="min-w-0 flex-1 text-[13px] leading-snug text-popover-foreground">
           {iosHint ? t("pwa.iosBanner") : t("pwa.banner")}
         </p>
         <Button className="h-11 shrink-0 gap-1.5 px-3" onClick={() => void install()}>
@@ -118,7 +118,7 @@ export function PWAInstallBanner() {
           type="button"
           variant="ghost"
           size="icon"
-          className="size-11 shrink-0 text-slate-300"
+          className="size-11 shrink-0 text-muted-foreground"
           onClick={dismiss}
           aria-label="Dismiss install prompt"
         >

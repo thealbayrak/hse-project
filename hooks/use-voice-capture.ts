@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
+import { LOCALE_TAGS, type Locale } from "@/lib/i18n/translations";
 
 type SpeechRecognitionCtor = new () => SpeechRecognition;
 
@@ -51,7 +52,7 @@ const serverFalse = () => false;
 
 export function useVoiceCapture(
   onTranscript: (text: string) => void,
-  locale: "en" | "sv" = "en"
+  locale: Locale = "en"
 ) {
   const [recording, setRecording] = useState(false);
   const [audioBlob, setAudioBlob] = useState<Blob | null>(null);
@@ -93,7 +94,7 @@ export function useVoiceCapture(
       const SpeechRecognition = getSpeechRecognition();
       if (SpeechRecognition) {
         const recognition = new SpeechRecognition();
-        recognition.lang = localeRef.current === "sv" ? "sv-SE" : "en-GB";
+        recognition.lang = LOCALE_TAGS[localeRef.current];
         recognition.continuous = true;
         recognition.interimResults = true;
         recognition.onresult = (event) => {

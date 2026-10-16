@@ -1,5 +1,5 @@
 import { findLocation, findSite } from "@/lib/data/sites";
-import { translate, type Locale } from "@/lib/i18n/translations";
+import { LOCALE_TAGS, translate, type Locale } from "@/lib/i18n/translations";
 import type { Incident, IncidentStatus, IncidentType, RiskCategory, Severity } from "@/lib/types";
 
 export function typeLabel(type: IncidentType, locale: Locale = "en") {
@@ -29,7 +29,7 @@ export function locationLabel(siteId: string, locationId: string) {
 }
 
 export function formatDateTime(iso: string, locale: Locale = "en") {
-  return new Intl.DateTimeFormat(locale === "sv" ? "sv-SE" : "en-GB", {
+  return new Intl.DateTimeFormat(LOCALE_TAGS[locale], {
     dateStyle: "medium",
     timeStyle: "short",
     timeZone: "Europe/Stockholm",
@@ -37,7 +37,7 @@ export function formatDateTime(iso: string, locale: Locale = "en") {
 }
 
 export function formatDate(iso: string, locale: Locale = "en") {
-  return new Intl.DateTimeFormat(locale === "sv" ? "sv-SE" : "en-GB", {
+  return new Intl.DateTimeFormat(LOCALE_TAGS[locale], {
     dateStyle: "medium",
     timeZone: "Europe/Stockholm",
   }).format(new Date(iso));

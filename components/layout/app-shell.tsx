@@ -11,11 +11,13 @@ import {
   ShieldCheckIcon,
 } from "lucide-react";
 import { LanguageToggle } from "@/components/LanguageToggle";
+import { ThemeToggle } from "@/components/ThemeToggle";
 import { cn } from "@/lib/utils";
 import { APP_NAME } from "@/lib/constants";
 import { useAuth } from "@/lib/auth/auth-context";
 import { useLanguage } from "@/lib/i18n/LanguageContext";
 import { useIncidentStore } from "@/lib/store/incident-store";
+import { panelClass } from "@/lib/tones";
 
 const NAV = [
   { href: "/", key: "nav.home", icon: ShieldCheckIcon },
@@ -50,16 +52,15 @@ export function AppShell({
       <header className="sticky top-0 z-40 border-b border-border/80 bg-background/90 pt-[env(safe-area-inset-top)] backdrop-blur-md">
         <div className="mx-auto flex h-16 max-w-6xl items-center justify-between gap-2 px-4">
           <Link href="/" className="flex min-h-12 min-w-0 items-center gap-2.5">
-            <span className="flex size-10 items-center justify-center rounded-lg bg-amber-500 text-slate-950">
+            <span className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-amber-500 text-slate-950">
               <HardHatIcon className="size-5" />
             </span>
-            <span className="leading-tight">
-              <span className="block text-sm font-semibold tracking-tight">{APP_NAME}</span>
-              <span className="block text-[11px] text-muted-foreground">{t("nav.tagline")}</span>
+            <span className="min-w-0 leading-tight">
+              <span className="block truncate text-sm font-semibold tracking-tight">{APP_NAME}</span>
+              <span className="block truncate text-[11px] text-muted-foreground">{t("nav.tagline")}</span>
             </span>
           </Link>
-          <div className="flex items-center gap-2">
-            <LanguageToggle />
+          <div className="flex items-center gap-1.5 sm:gap-2">
             <nav className="hidden items-center gap-1 md:flex">
               {NAV.map((item) => {
                 const active = pathname === item.href;
@@ -80,16 +81,18 @@ export function AppShell({
                 );
               })}
             </nav>
+            <LanguageToggle />
+            <ThemeToggle />
             {authEnabled && session && (
               <button
                 type="button"
                 onClick={() => void handleSignOut()}
                 title={email ? t("auth.signedInAs", { email }) : t("auth.signOut")}
                 aria-label={t("auth.signOut")}
-                className="inline-flex h-11 items-center gap-2 rounded-lg px-3 text-sm font-medium text-muted-foreground hover:bg-secondary/70 hover:text-foreground"
+                className="inline-flex size-11 items-center justify-center rounded-full border border-border bg-secondary/50 text-muted-foreground transition-colors hover:text-foreground lg:w-auto lg:gap-2 lg:px-3"
               >
                 <LogOutIcon className="size-4" />
-                <span className="hidden lg:inline">{t("auth.signOut")}</span>
+                <span className="hidden text-sm font-medium lg:inline">{t("auth.signOut")}</span>
               </button>
             )}
           </div>
@@ -100,9 +103,13 @@ export function AppShell({
         <button
           type="button"
           onClick={() => void syncQueuedReports()}
-          className="flex w-full items-center justify-center gap-2 border-b border-amber-500/30 bg-amber-950/60 px-4 py-2 text-xs font-medium text-amber-100"
+          className={cn(
+            "flex w-full items-center justify-center gap-2 border-b px-4 py-2 text-xs font-medium",
+            panelClass.warning,
+            "rounded-none"
+          )}
         >
-          <CloudOffIcon className="size-4 text-amber-400" />
+          <CloudOffIcon className="size-4 text-amber-600 dark:text-amber-400" />
           {t("offline.pending", { n: pendingCount })}
         </button>
       )}
@@ -111,7 +118,7 @@ export function AppShell({
         {(eyebrow || title || heading) && (
           <div className="mb-5">
             {(eyebrow || heading?.eyebrow) && (
-              <p className="text-xs font-semibold tracking-[0.16em] text-amber-400 uppercase">
+              <p className="text-xs font-semibold tracking-[0.16em] text-amber-700 uppercase dark:text-amber-400">
                 {eyebrow || heading?.eyebrow}
               </p>
             )}
@@ -137,7 +144,7 @@ export function AppShell({
                 href={item.href}
                 className={cn(
                   "flex min-h-14 flex-col items-center justify-center gap-1 rounded-xl text-[11px] font-medium",
-                  isReport && !active && "text-amber-400",
+                  isReport && !active && "text-amber-700 dark:text-amber-400",
                   active
                     ? isReport
                       ? "bg-amber-500 text-slate-950"

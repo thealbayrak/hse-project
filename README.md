@@ -4,7 +4,7 @@ Mobile-first PWA for Swedish construction sites and plants: workers report near-
 (tillbud), hazards and accidents in three taps; the safety organisation follows up with
 CAPA, weekly skyddsronder (AFS 2001:1) and AML 3:3a notices to Arbetsmiljöverket.
 
-- **Next.js 16 / React 19**, Tailwind 4, shadcn components, English + Swedish UI.
+- **Next.js 16 / React 19**, Tailwind 4, shadcn components; Swedish, English and Turkish UI; light, dark and automatic theme.
 - **Supabase** (Postgres, Storage, Auth, Realtime) when configured, otherwise an in-memory demo.
 - **Offline first**: reports written without signal are stored in IndexedDB and sent when the radio is back.
 - **Critical alerts**: critical incidents e-mail the safety officer via Resend, exactly once, verified server-side.

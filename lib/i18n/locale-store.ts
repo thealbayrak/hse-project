@@ -13,7 +13,7 @@ let current: Locale | null = null;
 const listeners = new Set<() => void>();
 
 function readCookie(): Locale | null {
-  const match = document.cookie.match(new RegExp(`(?:^|; )${STORAGE_KEY}=(en|sv)`));
+  const match = document.cookie.match(new RegExp(`(?:^|; )${STORAGE_KEY}=(en|sv|tr)`));
   return match && isLocale(match[1]) ? match[1] : null;
 }
 
