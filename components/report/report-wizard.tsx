@@ -4,6 +4,7 @@ import { useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   CheckIcon,
+  CloudOffIcon,
   ImagePlusIcon,
   MicIcon,
   ShieldOffIcon,
@@ -23,6 +24,7 @@ import {
   SEVERITY_LEVELS,
 } from "@/lib/constants";
 import { useLanguage } from "@/lib/i18n/LanguageContext";
+import { isImageFile } from "@/lib/media";
 import { useIncidentStore } from "@/lib/store/incident-store";
 import { categoryLabel, severityLabel, typeLabel } from "@/lib/format";
 import { cn } from "@/lib/utils";
@@ -58,7 +60,7 @@ export function ReportWizard() {
   const [step, setStep] = useState(0);
   const [draft, setDraft] = useState<ReportDraft>(EMPTY_DRAFT);
   const [submitting, setSubmitting] = useState(false);
-  const [submittedRef, setSubmittedRef] = useState<string | null>(null);
+  const [submitted, setSubmitted] = useState<{ reference: string; pending: boolean } | null>(null);
   const [dragOver, setDragOver] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const descriptionAnchor = useRef("");
@@ -66,7 +68,7 @@ export function ReportWizard() {
   const voice = useVoiceCapture((text) => {
     const base = descriptionAnchor.current;
     patch({ description: [base, text].filter(Boolean).join(" ") });
-  });
+  }, locale);
 
   const selectedSite = sites.find((site) => site.id === draft.siteId);
   const locations = selectedSite?.locations ?? [];
@@ -80,7 +82,7 @@ export function ReportWizard() {
   }
 
   async function addFiles(files: FileList | File[]) {
-    const images = Array.from(files).filter((file) => file.type.startsWith("image/"));
+    const images = Array.from(files).filter(isImageFile);
     if (!images.length) {
       toast.error(t("toast.photoNeeded"));
       return;
@@ -138,8 +140,8 @@ export function ReportWizard() {
         anonymous: draft.anonymous,
         reporterName: draft.anonymous ? null : DEFAULT_REPORTER_NAME,
       });
-      setSubmittedRef(created.reference);
-      toast.success(t("toast.reportReceived"));
+      setSubmitted({ reference: created.reference, pending: Boolean(created.pending) });
+      toast.success(created.pending ? t("offline.queued") : t("toast.reportReceived"));
     } catch (caught) {
       const message = caught instanceof Error ? caught.message : t("toast.reportFailed");
       toast.error(message);
@@ -148,17 +150,35 @@ export function ReportWizard() {
     }
   }
 
-  if (submittedRef) {
+  if (submitted) {
     return (
       <div className="mx-auto max-w-xl space-y-5">
         <StatutoryBanner />
-        <div className="rounded-2xl border border-emerald-500/30 bg-emerald-950/40 p-6 text-center">
-          <div className="mx-auto mb-4 flex size-14 items-center justify-center rounded-full bg-emerald-500 text-slate-950">
-            <CheckIcon className="size-7" />
+        <div
+          className={cn(
+            "rounded-2xl border p-6 text-center",
+            submitted.pending
+              ? "border-amber-500/30 bg-amber-950/40"
+              : "border-emerald-500/30 bg-emerald-950/40"
+          )}
+        >
+          <div
+            className={cn(
+              "mx-auto mb-4 flex size-14 items-center justify-center rounded-full text-slate-950",
+              submitted.pending ? "bg-amber-400" : "bg-emerald-500"
+            )}
+          >
+            {submitted.pending ? <CloudOffIcon className="size-7" /> : <CheckIcon className="size-7" />}
           </div>
-          <h2 className="text-2xl font-semibold">{t("report.received")}</h2>
-          <p className="mt-2 text-sm text-muted-foreground">{t("report.thankYou")}</p>
-          <p className="mt-4 font-mono text-lg text-amber-300">{submittedRef}</p>
+          <h2 className="text-2xl font-semibold">
+            {submitted.pending ? t("offline.queued") : t("report.received")}
+          </h2>
+          <p className="mt-2 text-sm text-muted-foreground">
+            {submitted.pending ? t("offline.queuedBody") : t("report.thankYou")}
+          </p>
+          {!submitted.pending && (
+            <p className="mt-4 font-mono text-lg text-amber-300">{submitted.reference}</p>
+          )}
           {draft.severity === "critical" && (
             <p className="mt-4 rounded-xl bg-red-950/60 px-4 py-3 text-sm text-red-100">
               {t("statutory.criticalNow")}
@@ -170,7 +190,7 @@ export function ReportWizard() {
               variant="outline"
               onClick={() => {
                 setDraft(EMPTY_DRAFT);
-                setSubmittedRef(null);
+                setSubmitted(null);
                 setStep(0);
                 voice.clearAudio();
               }}
@@ -347,7 +367,7 @@ export function ReportWizard() {
             <input
               ref={fileInputRef}
               type="file"
-              accept="image/*"
+              accept="image/*,.heic,.heif"
               multiple
               className="sr-only"
               onChange={(event) => {
@@ -505,7 +525,7 @@ export function ReportWizard() {
         </section>
       )}
 
-      <div className="sticky bottom-24 z-20 grid grid-cols-2 gap-3 bg-background/90 py-3 backdrop-blur md:bottom-4">
+      <div className="app-wizard-actions sticky bottom-[calc(5.5rem+env(safe-area-inset-bottom))] z-20 grid grid-cols-2 gap-3 bg-background/90 py-3 backdrop-blur md:bottom-4">
         <Button
           type="button"
           variant="outline"

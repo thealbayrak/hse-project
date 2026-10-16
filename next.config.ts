@@ -15,6 +15,10 @@ const nextConfig: NextConfig = {
         source: "/manifest.json",
         headers: [{ key: "Content-Type", value: "application/manifest+json; charset=utf-8" }],
       },
+      {
+        source: "/splash/:path*",
+        headers: [{ key: "Cache-Control", value: "public, max-age=31536000, immutable" }],
+      },
     ];
   },
 };

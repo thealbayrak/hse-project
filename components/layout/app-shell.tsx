@@ -1,12 +1,21 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
-import { ClipboardPlusIcon, HardHatIcon, LayoutDashboardIcon, ShieldCheckIcon } from "lucide-react";
+import { usePathname, useRouter } from "next/navigation";
+import {
+  ClipboardPlusIcon,
+  CloudOffIcon,
+  HardHatIcon,
+  LayoutDashboardIcon,
+  LogOutIcon,
+  ShieldCheckIcon,
+} from "lucide-react";
 import { LanguageToggle } from "@/components/LanguageToggle";
 import { cn } from "@/lib/utils";
 import { APP_NAME } from "@/lib/constants";
+import { useAuth } from "@/lib/auth/auth-context";
 import { useLanguage } from "@/lib/i18n/LanguageContext";
+import { useIncidentStore } from "@/lib/store/incident-store";
 
 const NAV = [
   { href: "/", key: "nav.home", icon: ShieldCheckIcon },
@@ -24,12 +33,21 @@ export function AppShell({
   title?: string;
 }) {
   const pathname = usePathname();
+  const router = useRouter();
   const { t } = useLanguage();
+  const { enabled: authEnabled, session, email, signOut } = useAuth();
+  const { pendingCount, syncQueuedReports } = useIncidentStore();
   const heading = pageHeading(pathname, t);
+
+  async function handleSignOut() {
+    await signOut();
+    router.replace("/");
+    router.refresh();
+  }
 
   return (
     <div className="flex min-h-dvh flex-col bg-background">
-      <header className="sticky top-0 z-40 border-b border-border/80 bg-background/90 backdrop-blur-md">
+      <header className="sticky top-0 z-40 border-b border-border/80 bg-background/90 pt-[env(safe-area-inset-top)] backdrop-blur-md">
         <div className="mx-auto flex h-16 max-w-6xl items-center justify-between gap-2 px-4">
           <Link href="/" className="flex min-h-12 min-w-0 items-center gap-2.5">
             <span className="flex size-10 items-center justify-center rounded-lg bg-amber-500 text-slate-950">
@@ -62,11 +80,34 @@ export function AppShell({
                 );
               })}
             </nav>
+            {authEnabled && session && (
+              <button
+                type="button"
+                onClick={() => void handleSignOut()}
+                title={email ? t("auth.signedInAs", { email }) : t("auth.signOut")}
+                aria-label={t("auth.signOut")}
+                className="inline-flex h-11 items-center gap-2 rounded-lg px-3 text-sm font-medium text-muted-foreground hover:bg-secondary/70 hover:text-foreground"
+              >
+                <LogOutIcon className="size-4" />
+                <span className="hidden lg:inline">{t("auth.signOut")}</span>
+              </button>
+            )}
           </div>
         </div>
       </header>
 
-      <main className="mx-auto w-full max-w-6xl flex-1 px-4 pt-5 pb-28 md:pb-10">
+      {pendingCount > 0 && (
+        <button
+          type="button"
+          onClick={() => void syncQueuedReports()}
+          className="flex w-full items-center justify-center gap-2 border-b border-amber-500/30 bg-amber-950/60 px-4 py-2 text-xs font-medium text-amber-100"
+        >
+          <CloudOffIcon className="size-4 text-amber-400" />
+          {t("offline.pending", { n: pendingCount })}
+        </button>
+      )}
+
+      <main className="mx-auto w-full max-w-6xl flex-1 px-4 pt-5 pb-[calc(7rem+env(safe-area-inset-bottom))] md:pb-10">
         {(eyebrow || title || heading) && (
           <div className="mb-5">
             {(eyebrow || heading?.eyebrow) && (
@@ -82,7 +123,10 @@ export function AppShell({
         {children}
       </main>
 
-      <nav className="fixed inset-x-0 bottom-0 z-40 border-t border-border bg-background/95 px-2 pt-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] backdrop-blur-md md:hidden">
+      <nav
+        data-app-tabbar
+        className="fixed inset-x-0 bottom-[var(--kb-inset,0px)] z-40 border-t border-border bg-background/95 px-2 pt-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] backdrop-blur-md md:hidden"
+      >
         <div className="mx-auto grid max-w-lg grid-cols-3 gap-1">
           {NAV.map((item) => {
             const active = pathname === item.href;

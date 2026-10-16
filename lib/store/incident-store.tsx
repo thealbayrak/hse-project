@@ -11,6 +11,7 @@ import {
 } from "react";
 import { toast } from "sonner";
 import { dispatchCriticalIncidentAlert } from "@/lib/alerts/critical-incident";
+import { useAuth } from "@/lib/auth/auth-context";
 import { createIncidentRepository } from "@/lib/data/factory";
 import { computeMetrics, sortIncidents } from "@/lib/data/metrics";
 import type { IncidentRepository } from "@/lib/data/repository";
@@ -20,6 +21,16 @@ import { SITES } from "@/lib/data/sites";
 import { typeLabel } from "@/lib/format";
 import { useLanguage } from "@/lib/i18n/LanguageContext";
 import { playAlertChime } from "@/lib/audio";
+import {
+  countQueuedReports,
+  enqueueReport,
+  isNetworkError,
+  listQueuedReports,
+  markAttempt,
+  offlineQueueSupported,
+  removeQueuedReport,
+  toCreateIncidentInput,
+} from "@/lib/offline/report-queue";
 import { toSafetyWalkSummary } from "@/lib/supabase/mappers";
 import { isSupabaseConfigured } from "@/lib/supabase/env";
 import type {
@@ -41,11 +52,16 @@ interface IncidentStoreValue {
   loading: boolean;
   error: string | null;
   usingSupabase: boolean;
+  /** True when the current visitor may read incidents (signed in, or demo mode). */
+  canReadIncidents: boolean;
   highlightedIds: string[];
+  /** Reports stored on this device that still wait for a connection. */
+  pendingCount: number;
   createIncident: (input: CreateIncidentInput) => Promise<Incident>;
   updateCapa: (incidentId: string, capa: UpdateCapaInput) => Promise<Incident>;
   createSafetyWalk: (input: CreateSafetyWalkInput) => Promise<SafetyWalk>;
   refresh: () => Promise<void>;
+  syncQueuedReports: () => Promise<void>;
 }
 
 const IncidentStoreContext = createContext<IncidentStoreValue | null>(null);
@@ -60,14 +76,21 @@ const EMPTY_METRICS: DashboardMetrics = {
 };
 
 export function IncidentProvider({ children }: { children: React.ReactNode }) {
-  const { locale } = useLanguage();
-  const repositoryRef = useRef<IncidentRepository>(createIncidentRepository());
+  const { locale, t } = useLanguage();
+  const { session } = useAuth();
+  const [repository] = useState<IncidentRepository>(createIncidentRepository);
+
+  const sessionResolved = session !== undefined;
+  const canReadIncidents = !usingSupabase || Boolean(session);
+
   const [incidents, setIncidents] = useState<Incident[]>(() =>
     usingSupabase ? [] : sortIncidents(structuredClone(SEED_INCIDENTS))
   );
   const [sites, setSites] = useState<Site[]>(() => (usingSupabase ? [] : structuredClone(SITES)));
-  const [metrics, setMetrics] = useState<DashboardMetrics>(() =>
-    usingSupabase ? EMPTY_METRICS : computeMetrics(SEED_INCIDENTS)
+  // Metrics are derived from the list so realtime updates and refreshes stay consistent.
+  const metrics = useMemo<DashboardMetrics>(
+    () => (canReadIncidents ? computeMetrics(incidents) : EMPTY_METRICS),
+    [canReadIncidents, incidents]
   );
   const [latestSafetyWalk, setLatestSafetyWalk] = useState<SafetyWalkSummary | null>(() =>
     usingSupabase ? null : toSafetyWalkSummary(SEED_SAFETY_WALKS[0])
@@ -75,20 +98,31 @@ export function IncidentProvider({ children }: { children: React.ReactNode }) {
   const [loading, setLoading] = useState(usingSupabase);
   const [error, setError] = useState<string | null>(null);
   const [highlightedIds, setHighlightedIds] = useState<string[]>([]);
+  const [pendingCount, setPendingCount] = useState(0);
+  const syncingRef = useRef(false);
+
+  // IndexedDB unavailable (private mode) means nothing can be queued either, so errors are ignored.
+  const refreshPending = useCallback(
+    () => countQueuedReports().then(setPendingCount).catch(() => undefined),
+    []
+  );
 
   const refresh = useCallback(async () => {
-    const repo = repositoryRef.current;
     try {
-      const [nextIncidents, nextSites, nextMetrics, nextWalk] = await Promise.all([
-        repo.listIncidents(),
-        repo.listSites(),
-        repo.getMetrics(),
-        repo.getLatestSafetyWalk().catch(() => null),
-      ]);
-      setIncidents(nextIncidents);
+      const nextSites = await repository.listSites();
       setSites(nextSites);
-      setMetrics(nextMetrics);
-      setLatestSafetyWalk(nextWalk);
+
+      if (canReadIncidents) {
+        const [nextIncidents, nextWalk] = await Promise.all([
+          repository.listIncidents(),
+          repository.getLatestSafetyWalk().catch(() => null),
+        ]);
+        setIncidents(nextIncidents);
+        setLatestSafetyWalk(nextWalk);
+      } else {
+        setIncidents([]);
+        setLatestSafetyWalk(null);
+      }
       setError(null);
     } catch (caught) {
       const message = caught instanceof Error ? caught.message : "Could not load safety data.";
@@ -97,18 +131,25 @@ export function IncidentProvider({ children }: { children: React.ReactNode }) {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [canReadIncidents, repository]);
 
   useEffect(() => {
-    void refresh().catch(() => {
-      // Error is stored for the UI.
-    });
-  }, [refresh]);
+    if (!sessionResolved) return;
+    // Loads from the repository (an external system); errors are stored for the UI.
+    let cancelled = false;
+    Promise.resolve()
+      .then(() => (cancelled ? undefined : refresh()))
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, [refresh, sessionResolved]);
 
   useEffect(() => {
-    const unsubscribe = repositoryRef.current.subscribeToIncidents?.(async (event) => {
+    if (!canReadIncidents) return;
+    const unsubscribe = repository.subscribeToIncidents?.(async (event) => {
       try {
-        const incident = await repositoryRef.current.getIncident(event.id);
+        const incident = await repository.getIncident(event.id);
         if (!incident) {
           await refresh();
           return;
@@ -116,11 +157,9 @@ export function IncidentProvider({ children }: { children: React.ReactNode }) {
 
         setIncidents((current) => {
           const exists = current.some((item) => item.id === incident.id);
-          const next = exists
+          return exists
             ? current.map((item) => (item.id === incident.id ? incident : item))
             : [incident, ...current];
-          setMetrics(computeMetrics(next));
-          return next;
         });
 
         if (event.event === "INSERT") {
@@ -141,35 +180,108 @@ export function IncidentProvider({ children }: { children: React.ReactNode }) {
     });
 
     return () => unsubscribe?.();
-  }, [locale, refresh]);
+  }, [canReadIncidents, locale, refresh, repository]);
+
+  const syncQueuedReports = useCallback(async () => {
+    if (syncingRef.current || !offlineQueueSupported()) return;
+    if (typeof navigator !== "undefined" && navigator.onLine === false) return;
+    syncingRef.current = true;
+    let sent = 0;
+    let failed = false;
+    try {
+      const queued = await listQueuedReports();
+      for (const report of queued) {
+        try {
+          const created = await repository.createIncident(toCreateIncidentInput(report));
+          dispatchCriticalIncidentAlert(created);
+          await removeQueuedReport(report.id);
+          sent += 1;
+        } catch (caught) {
+          if (isNetworkError(caught)) break; // still offline: keep the rest for later
+          await markAttempt(report);
+          failed = true;
+        }
+      }
+    } finally {
+      syncingRef.current = false;
+      await refreshPending();
+    }
+    if (sent) {
+      toast.success(t("offline.synced", { n: sent }));
+      await refresh().catch(() => undefined);
+    }
+    if (failed) toast.error(t("offline.syncFailed"));
+  }, [refresh, refreshPending, repository, t]);
+
+  useEffect(() => {
+    // Queue state lives in IndexedDB (an external system); sync when the radio comes back.
+    const flush = () => void syncQueuedReports();
+    flush();
+    window.addEventListener("online", flush);
+    return () => window.removeEventListener("online", flush);
+  }, [syncQueuedReports]);
 
   const createIncident = useCallback(
     async (input: CreateIncidentInput) => {
-      const created = await repositoryRef.current.createIncident(input);
-      dispatchCriticalIncidentAlert(created);
-      await refresh().catch(() => undefined);
-      return created;
+      const offline = typeof navigator !== "undefined" && navigator.onLine === false;
+      if (!offline) {
+        try {
+          const created = await repository.createIncident(input);
+          dispatchCriticalIncidentAlert(created);
+          await refresh().catch(() => undefined);
+          return created;
+        } catch (caught) {
+          if (!isNetworkError(caught) || !offlineQueueSupported()) throw caught;
+        }
+      } else if (!offlineQueueSupported()) {
+        throw new Error("No connection and this browser cannot store reports offline.");
+      }
+
+      const queued = await enqueueReport(input);
+      await refreshPending();
+      const site = sites.find((item) => item.id === input.siteId);
+      const pendingIncident: Incident = {
+        id: queued.id,
+        reference: "",
+        type: input.type,
+        siteId: input.siteId,
+        locationId: input.locationId,
+        siteName: site?.name,
+        locationName: site?.locations.find((item) => item.id === input.locationId)?.name,
+        category: input.category,
+        severity: input.severity,
+        description: input.description,
+        mediaUrls: input.mediaUrls,
+        anonymous: input.anonymous,
+        reporterName: input.anonymous ? null : input.reporterName,
+        status: "open",
+        createdAt: queued.queuedAt,
+        capa: null,
+        source: "report",
+        pending: true,
+      };
+      return pendingIncident;
     },
-    [refresh]
+    [refresh, refreshPending, repository, sites]
   );
 
   const createSafetyWalk = useCallback(
     async (input: CreateSafetyWalkInput) => {
-      const created = await repositoryRef.current.createSafetyWalk(input);
+      const created = await repository.createSafetyWalk(input);
       setLatestSafetyWalk(toSafetyWalkSummary(created));
       await refresh().catch(() => undefined);
       return created;
     },
-    [refresh]
+    [refresh, repository]
   );
 
   const updateCapa = useCallback(
     async (incidentId: string, capa: UpdateCapaInput) => {
-      const updated = await repositoryRef.current.updateCapa(incidentId, capa);
+      const updated = await repository.updateCapa(incidentId, capa);
       await refresh().catch(() => undefined);
       return updated;
     },
-    [refresh]
+    [refresh, repository]
   );
 
   const value = useMemo(
@@ -181,11 +293,14 @@ export function IncidentProvider({ children }: { children: React.ReactNode }) {
       loading,
       error,
       usingSupabase,
+      canReadIncidents,
       highlightedIds,
+      pendingCount,
       createIncident,
       updateCapa,
       createSafetyWalk,
       refresh,
+      syncQueuedReports,
     }),
     [
       incidents,
@@ -194,11 +309,14 @@ export function IncidentProvider({ children }: { children: React.ReactNode }) {
       latestSafetyWalk,
       loading,
       error,
+      canReadIncidents,
       highlightedIds,
+      pendingCount,
       createIncident,
       updateCapa,
       createSafetyWalk,
       refresh,
+      syncQueuedReports,
     ]
   );
 

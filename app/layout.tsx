@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
+import { IosStartupImages } from "@/components/ios-startup-images";
 import { PWAInstallBanner } from "@/components/PWAInstallBanner";
 import { Providers } from "@/components/providers";
 import "./globals.css";
@@ -29,8 +30,16 @@ export const metadata: Metadata = {
   },
   appleWebApp: {
     capable: true,
-    title: "SiteSafety Nordic",
+    title: "SiteSafety",
     statusBarStyle: "black-translucent",
+  },
+  formatDetection: {
+    telephone: false,
+    email: false,
+    address: false,
+  },
+  other: {
+    "apple-mobile-web-app-capable": "yes",
   },
 };
 
@@ -40,6 +49,7 @@ export const viewport: Viewport = {
   initialScale: 1,
   maximumScale: 1,
   userScalable: false,
+  viewportFit: "cover",
   colorScheme: "dark",
 };
 
@@ -50,7 +60,10 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
       suppressHydrationWarning
       className={`${geistSans.variable} ${geistMono.variable} dark h-full antialiased`}
     >
-      <body className="min-h-full flex flex-col font-sans">
+      <head>
+        <IosStartupImages />
+      </head>
+      <body className="flex min-h-full min-h-dvh flex-col font-sans">
         <Providers>
           {children}
           <PWAInstallBanner />

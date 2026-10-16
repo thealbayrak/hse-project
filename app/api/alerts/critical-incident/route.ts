@@ -2,75 +2,68 @@ import { NextResponse } from "next/server";
 import { Resend } from "resend";
 import { buildCriticalIncidentEmail } from "@/lib/alerts/critical-incident-email";
 import type { CriticalIncidentAlertPayload } from "@/lib/alerts/critical-incident";
-import type { IncidentType, RiskCategory, Severity } from "@/lib/types";
+import { parseAlertRequest } from "@/lib/alerts/parse-alert-request";
+import { isSupabaseConfigured } from "@/lib/supabase/env";
+import { mapCategory, mapIncidentType, mapSeverity } from "@/lib/supabase/mappers";
+import { createAnonServerClient } from "@/lib/supabase/server";
+import type { ClaimedAlertRow } from "@/lib/supabase/database.types";
 
 export const runtime = "nodejs";
 
-const INCIDENT_TYPES: IncidentType[] = ["near-miss", "hazard", "accident"];
-const CATEGORIES: RiskCategory[] = [
-  "falls",
-  "machine",
-  "falling-objects",
-  "slip-trip",
-  "chemical",
-  "electrical",
-  "ergonomic",
-];
-const SEVERITIES: Severity[] = ["low", "medium", "high", "critical"];
-
-function isIncidentType(value: unknown): value is IncidentType {
-  return typeof value === "string" && INCIDENT_TYPES.includes(value as IncidentType);
-}
-
-function isCategory(value: unknown): value is RiskCategory {
-  return typeof value === "string" && CATEGORIES.includes(value as RiskCategory);
-}
-
-function isSeverity(value: unknown): value is Severity {
-  return typeof value === "string" && SEVERITIES.includes(value as Severity);
-}
-
-function parsePayload(body: unknown): CriticalIncidentAlertPayload | null {
-  if (!body || typeof body !== "object") return null;
-  const value = body as Record<string, unknown>;
-  if (typeof value.incidentId !== "string" || !value.incidentId) return null;
-  if (!isIncidentType(value.type)) return null;
-  if (!isCategory(value.category)) return null;
-  if (!isSeverity(value.severity)) return null;
-  if (typeof value.title !== "string") return null;
-  if (typeof value.description !== "string") return null;
-  if (typeof value.siteName !== "string") return null;
-  if (typeof value.specificLocation !== "string") return null;
-  if (typeof value.occurredAt !== "string") return null;
-
-  return {
-    incidentId: value.incidentId,
-    type: value.type,
-    category: value.category,
-    severity: value.severity,
-    title: value.title,
-    description: value.description,
-    siteName: value.siteName,
-    specificLocation: value.specificLocation,
-    occurredAt: value.occurredAt,
-    requiresArbetsmiljoverketReport: Boolean(value.requiresArbetsmiljoverketReport),
-  };
-}
-
+/**
+ * Sends the AML 3:3a critical-incident e-mail.
+ *
+ * Trust model:
+ *  - With Supabase, the body is only used for its `incidentId`. The route calls
+ *    the `claim_incident_alert` RPC, which returns the incident exactly once and
+ *    only if it is critical, so the e-mail can be neither forged nor repeated.
+ *    Both the browser (after submitting) and a Supabase Database Webhook
+ *    (protected by `ALERT_WEBHOOK_SECRET`) may trigger it; whichever arrives
+ *    first wins, the other is a no-op.
+ *  - Without Supabase (demo mode) the client payload itself is e-mailed.
+ */
 export async function POST(request: Request) {
-  let payload: CriticalIncidentAlertPayload | null = null;
+  let body: unknown;
   try {
-    payload = parsePayload(await request.json());
+    body = await request.json();
   } catch {
     return NextResponse.json({ ok: false, error: "Invalid JSON body." }, { status: 400 });
   }
 
-  if (!payload) {
+  const parsed = parseAlertRequest(body);
+  if (!parsed) {
     return NextResponse.json({ ok: false, error: "Invalid alert payload." }, { status: 400 });
   }
 
-  if (payload.severity !== "critical" && payload.requiresArbetsmiljoverketReport !== true) {
-    return NextResponse.json({ ok: true, ignored: true }, { status: 200 });
+  if (parsed.kind === "webhook") {
+    const secret = process.env.ALERT_WEBHOOK_SECRET;
+    const provided = request.headers.get("x-alert-secret") ?? request.headers.get("authorization")?.replace(/^Bearer\s+/i, "");
+    if (!secret || provided !== secret) {
+      return NextResponse.json({ ok: false, error: "Unauthorized." }, { status: 401 });
+    }
+  }
+
+  let payload: CriticalIncidentAlertPayload | null = null;
+
+  if (isSupabaseConfigured()) {
+    const claimed = await claimIncident(parsed.incidentId);
+    if (claimed === "error") {
+      return NextResponse.json({ ok: false, error: "Could not verify the incident." }, { status: 502 });
+    }
+    if (!claimed) {
+      return NextResponse.json({ ok: true, ignored: true }, { status: 200 });
+    }
+    payload = claimed;
+  } else if (parsed.kind === "client") {
+    payload = parsed.payload;
+    if (!payload) {
+      return NextResponse.json({ ok: false, error: "Invalid alert payload." }, { status: 400 });
+    }
+    if (payload.severity !== "critical") {
+      return NextResponse.json({ ok: true, ignored: true }, { status: 200 });
+    }
+  } else {
+    return NextResponse.json({ ok: false, error: "Supabase is not configured." }, { status: 500 });
   }
 
   const apiKey = process.env.RESEND_API_KEY;
@@ -94,7 +87,7 @@ export async function POST(request: Request) {
     const resend = new Resend(apiKey);
     const { data, error } = await resend.emails.send({
       from,
-      to: recipient,
+      to: recipient.split(",").map((address) => address.trim()).filter(Boolean),
       subject: email.subject,
       html: email.html,
       text: email.text,
@@ -109,4 +102,28 @@ export async function POST(request: Request) {
     const message = caught instanceof Error ? caught.message : "Failed to send safety alert.";
     return NextResponse.json({ ok: false, error: message }, { status: 500 });
   }
+}
+
+async function claimIncident(incidentId: string): Promise<CriticalIncidentAlertPayload | null | "error"> {
+  const client = createAnonServerClient();
+  const result = await client.rpc("claim_incident_alert", { p_id: incidentId });
+  if (result.error) return "error";
+
+  const row = (Array.isArray(result.data) ? result.data[0] : result.data) as ClaimedAlertRow | undefined;
+  if (!row) return null;
+
+  const type = mapIncidentType(row.type);
+  const severity = mapSeverity(row.severity);
+  return {
+    incidentId: row.id,
+    type,
+    category: mapCategory(row.category),
+    severity,
+    title: row.reference,
+    description: row.description,
+    siteName: row.site_name,
+    specificLocation: row.location_name,
+    occurredAt: row.created_at,
+    requiresArbetsmiljoverketReport: severity === "critical" || type === "accident",
+  };
 }

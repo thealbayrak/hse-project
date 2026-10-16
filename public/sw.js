@@ -1,8 +1,10 @@
-const CACHE_NAME = "sitesafety-shell-v1";
+const CACHE_NAME = "sitesafety-shell-v2";
 const SHELL_URLS = [
   "/",
   "/report",
   "/dashboard",
+  "/skyddsrond",
+  "/login",
   "/manifest.json",
   "/icons/icon-192x192.png",
   "/icons/icon-512x512.png",

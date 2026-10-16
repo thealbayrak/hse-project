@@ -1,0 +1,6 @@
+# Supabase CLI project config.
+#   npx supabase link --project-ref <ref>
+#   npx supabase db push                      # applies supabase/migrations
+#   npx supabase db query -f supabase/seed.sql   # optional demo sites
+[db]
+major_version = 17

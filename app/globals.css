@@ -90,15 +90,37 @@
   }
   html {
     @apply font-sans;
+    background: #090d16;
     touch-action: manipulation;
+    -webkit-text-size-adjust: 100%;
+    overscroll-behavior: none;
   }
   body {
     @apply bg-background text-foreground;
+    min-height: 100dvh;
+    overscroll-behavior: none;
   }
   button,
-  a {
+  a,
+  img {
     -webkit-tap-highlight-color: transparent;
+    -webkit-touch-callout: none;
   }
+  @supports (-webkit-touch-callout: none) {
+    input,
+    textarea,
+    select {
+      font-size: 16px !important;
+    }
+  }
+}
+
+html[data-keyboard="open"] [data-app-tabbar] {
+  display: none;
+}
+
+html[data-keyboard="open"] .app-wizard-actions {
+  bottom: 0.5rem;
 }
 
 @media print {

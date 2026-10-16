@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import {
   ActivityIcon,
@@ -31,7 +31,7 @@ import { useLanguage } from "@/lib/i18n/LanguageContext";
 import { useIncidentStore } from "@/lib/store/incident-store";
 import { cn } from "@/lib/utils";
 import { severityBarClass, severityClass, statusClass } from "@/lib/tones";
-import type { Incident, IncidentStatus, Severity } from "@/lib/types";
+import type { IncidentStatus, Severity } from "@/lib/types";
 
 const STATUS_FILTERS: IncidentStatus[] = ["open", "in-progress", "resolved"];
 const SEVERITY_FILTERS: Severity[] = ["critical", "high", "medium", "low"];
@@ -42,15 +42,19 @@ export function DashboardView() {
   const searchParams = useSearchParams();
   const [status, setStatus] = useState<IncidentStatus | "all">("all");
   const [severity, setSeverity] = useState<Severity | "all">("all");
-  const [selected, setSelected] = useState<Incident | null>(null);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [dismissedDeepLink, setDismissedDeepLink] = useState<string | null>(null);
   const [skyddsrondOpen, setSkyddsrondOpen] = useState(false);
   const deepLinkId = searchParams.get("incidentId");
 
-  useEffect(() => {
-    if (!deepLinkId) return;
-    const found = incidents.find((incident) => incident.id === deepLinkId);
-    if (found) setSelected(found);
-  }, [deepLinkId, incidents]);
+  // `?incidentId=` (from the alert email) opens the incident until the user closes it.
+  const activeId = selectedId ?? (deepLinkId && deepLinkId !== dismissedDeepLink ? deepLinkId : null);
+  const selected = activeId ? (incidents.find((incident) => incident.id === activeId) ?? null) : null;
+
+  function closeDetail() {
+    setSelectedId(null);
+    if (deepLinkId) setDismissedDeepLink(deepLinkId);
+  }
 
   const filtered = useMemo(
     () =>
@@ -168,7 +172,7 @@ export function DashboardView() {
           <button
             key={incident.id}
             type="button"
-            onClick={() => setSelected(incident)}
+            onClick={() => setSelectedId(incident.id)}
             className={cn(
               "flex w-full min-h-[5.5rem] overflow-hidden rounded-2xl border border-border bg-card text-left transition-colors hover:bg-secondary/40",
               highlightedIds.includes(incident.id) && "ring-2 ring-amber-400 ring-offset-2 ring-offset-background"
@@ -217,14 +221,7 @@ export function DashboardView() {
         )}
       </div>
 
-      <IncidentDetailDialog
-        incident={
-          selected
-            ? (incidents.find((item) => item.id === selected.id) ?? selected)
-            : null
-        }
-        onClose={() => setSelected(null)}
-      />
+      <IncidentDetailDialog incident={selected} onClose={closeDetail} />
       <SkyddsrondDialog open={skyddsrondOpen} onClose={() => setSkyddsrondOpen(false)} />
     </div>
   );

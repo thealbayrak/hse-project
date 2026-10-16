@@ -6,13 +6,21 @@
   "start_url": "/report",
   "scope": "/",
   "display": "standalone",
+  "display_override": ["standalone", "browser"],
   "orientation": "portrait",
   "background_color": "#090d16",
   "theme_color": "#090d16",
   "lang": "en",
   "dir": "ltr",
   "categories": ["business", "productivity"],
+  "prefer_related_applications": false,
   "icons": [
+    {
+      "src": "/icons/apple-touch-icon.png",
+      "sizes": "180x180",
+      "type": "image/png",
+      "purpose": "any"
+    },
     {
       "src": "/icons/icon-192x192.png",
       "sizes": "192x192",

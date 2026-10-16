@@ -17,6 +17,10 @@ export function shouldDispatchCriticalAlert(incident: Pick<Incident, "severity">
   return incident.severity === "critical";
 }
 
+export function requiresArbetsmiljoverketReport(incident: Pick<Incident, "severity" | "type">) {
+  return incident.severity === "critical" || incident.type === "accident";
+}
+
 export function toCriticalIncidentAlertPayload(incident: Incident): CriticalIncidentAlertPayload {
   return {
     incidentId: incident.id,
@@ -28,11 +32,15 @@ export function toCriticalIncidentAlertPayload(incident: Incident): CriticalInci
     siteName: incident.siteName ?? incident.siteId,
     specificLocation: incident.locationName ?? incident.locationId,
     occurredAt: incident.createdAt,
-    requiresArbetsmiljoverketReport: incident.severity === "critical" || incident.type === "accident",
+    requiresArbetsmiljoverketReport: requiresArbetsmiljoverketReport(incident),
   };
 }
 
-/** Fire-and-forget. Never throws — report submission must not depend on email delivery. */
+/**
+ * Fire-and-forget. Never throws — report submission must not depend on email delivery.
+ * With Supabase the server only trusts `incidentId` and re-reads the incident itself;
+ * the remaining fields are used in demo (mock) mode only.
+ */
 export function dispatchCriticalIncidentAlert(incident: Incident) {
   if (!shouldDispatchCriticalAlert(incident)) return;
 
@@ -42,5 +50,6 @@ export function dispatchCriticalIncidentAlert(incident: Incident) {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload),
+    keepalive: true,
   }).catch(() => undefined);
 }

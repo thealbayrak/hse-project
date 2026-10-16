@@ -3,6 +3,7 @@ import type {
   AttachmentRow,
   IncidentRow,
   LocationRow,
+  OrganizationRow,
   SafetyWalkItemRow,
   SafetyWalkRow,
   SiteRow,
@@ -27,28 +28,24 @@ type Nested<T> = T | T[] | null | undefined;
 export interface IncidentQueryRow extends IncidentRow {
   sites?: Nested<Pick<SiteRow, "id" | "name" | "city">>;
   site_locations?: Nested<Pick<LocationRow, "id" | "name">>;
-  locations?: Nested<Pick<LocationRow, "id" | "name">>;
   actions?: Nested<ActionRow>;
   incident_attachments?: Nested<AttachmentRow>;
 }
 
-export interface SiteQueryRow {
-  id: string;
-  name: string;
-  city?: string | null;
-  address?: string | null;
-  organization_id?: string | null;
-  organization_number?: string | null;
-  organizations?: Nested<{
-    id?: string;
-    name: string;
-    organization_number?: string | null;
-    org_number?: string | null;
-    address?: string | null;
-  }>;
-  site_locations?: Nested<Pick<LocationRow, "id" | "name">>;
-  locations?: Nested<Pick<LocationRow, "id" | "name">>;
+export interface SiteQueryRow extends SiteRow {
+  organizations?: Nested<Pick<OrganizationRow, "id" | "name" | "organization_number" | "address">>;
+  site_locations?: Nested<Pick<LocationRow, "id" | "name" | "sort_order">>;
 }
+
+export interface SafetyWalkQueryRow extends SafetyWalkRow {
+  sites?: Nested<Pick<SiteRow, "id" | "name">>;
+  safety_walk_items?: Nested<SafetyWalkItemRow>;
+}
+
+/** Resolves a storage path to a URL the browser can load (signed or public). */
+export type MediaUrlResolver = (path: string) => string | null;
+
+const noMedia: MediaUrlResolver = () => null;
 
 function unwrapOne<T>(value: Nested<T>): T | null {
   if (!value) return null;
@@ -111,13 +108,16 @@ export function mapCapa(row: ActionRow | null): CapaAction | null {
   };
 }
 
-export function mapIncident(row: IncidentQueryRow): Incident {
+function latestFirst(a: ActionRow, b: ActionRow) {
+  return +new Date(b.updated_at ?? b.created_at ?? 0) - +new Date(a.updated_at ?? a.created_at ?? 0);
+}
+
+export function mapIncident(row: IncidentQueryRow, mediaUrl: MediaUrlResolver = noMedia): Incident {
   const site = unwrapOne(row.sites);
-  const location = unwrapOne(row.site_locations) ?? unwrapOne(row.locations);
-  const actions = unwrapMany(row.actions).sort((a, b) => {
-    return +new Date(b.updated_at ?? b.created_at ?? 0) - +new Date(a.updated_at ?? a.created_at ?? 0);
-  });
+  const location = unwrapOne(row.site_locations);
+  const actions = unwrapMany(row.actions).sort(latestFirst);
   const attachments = unwrapMany(row.incident_attachments);
+  const voice = attachments.find((item) => item.kind === "voice");
 
   return {
     id: row.id,
@@ -132,9 +132,10 @@ export function mapIncident(row: IncidentQueryRow): Incident {
     description: row.description,
     mediaUrls: attachments
       .filter((item) => item.kind !== "voice")
-      .map((item) => item.url)
+      .map((item) => mediaUrl(item.storage_path))
       .filter((url): url is string => Boolean(url)),
-    anonymous: Boolean(row.is_anonymous ?? row.anonymous),
+    audioUrl: voice ? mediaUrl(voice.storage_path) : null,
+    anonymous: Boolean(row.is_anonymous),
     reporterName: row.reporter_name,
     status: mapStatus(row.status),
     createdAt: row.created_at,
@@ -143,14 +144,16 @@ export function mapIncident(row: IncidentQueryRow): Incident {
   };
 }
 
+/** Every storage path an incident row references (for batch URL signing). */
+export function incidentMediaPaths(row: IncidentQueryRow): string[] {
+  return unwrapMany(row.incident_attachments).map((item) => item.storage_path);
+}
+
 export function mapSite(row: SiteQueryRow): Site {
   const org = unwrapOne(row.organizations);
-  const locations = [
-    ...unwrapMany(row.site_locations),
-    ...unwrapMany(row.locations),
-  ];
-  const unique = new Map(locations.map((item) => [item.id, item]));
-  const mapped = [...unique.values()].map((item) => ({ id: item.id, name: item.name }));
+  const locations = [...unwrapMany(row.site_locations)]
+    .sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0))
+    .map((item) => ({ id: item.id, name: item.name }));
 
   return {
     id: row.id,
@@ -158,9 +161,9 @@ export function mapSite(row: SiteQueryRow): Site {
     city: row.city || "",
     address: row.address || org?.address || undefined,
     organizationId: row.organization_id || org?.id || undefined,
-    organizationNumber: row.organization_number || org?.organization_number || org?.org_number || undefined,
+    organizationNumber: org?.organization_number || undefined,
     organizationName: org?.name,
-    locations: mapped.length ? mapped : [{ id: row.id, name: row.name }],
+    locations: locations.length ? locations : [{ id: row.id, name: row.name }],
   };
 }
 
@@ -197,7 +200,8 @@ export function mapWalkDomain(value: string): SafetyWalkDomainId {
 
 export function mapWalkItem(
   row: SafetyWalkItemRow,
-  actionStatus: SafetyWalkItem["actionStatus"] = null
+  actionStatus: SafetyWalkItem["actionStatus"] = null,
+  mediaUrl: MediaUrlResolver = noMedia
 ): SafetyWalkItem {
   return {
     id: row.id,
@@ -207,20 +211,22 @@ export function mapWalkItem(
     title: row.title,
     status: mapWalkItemStatus(row.status),
     notes: row.notes ?? "",
-    photoUrl: row.photo_url,
+    photoUrl: row.photo_path ? mediaUrl(row.photo_path) : null,
     sortOrder: row.sort_order ?? 0,
     actionStatus,
   };
 }
 
-export interface SafetyWalkQueryRow extends SafetyWalkRow {
-  sites?: Nested<Pick<SiteRow, "id" | "name">>;
-  safety_walk_items?: Nested<SafetyWalkItemRow>;
+export function walkMediaPaths(row: SafetyWalkQueryRow): string[] {
+  return unwrapMany(row.safety_walk_items)
+    .map((item) => item.photo_path)
+    .filter((path): path is string => Boolean(path));
 }
 
 export function mapSafetyWalk(
   row: SafetyWalkQueryRow,
-  actionByItemId: Map<string, ActionRow> = new Map()
+  actionByItemId: Map<string, ActionRow> = new Map(),
+  mediaUrl: MediaUrlResolver = noMedia
 ): SafetyWalk {
   const site = unwrapOne(row.sites);
   const items = unwrapMany(row.safety_walk_items)
@@ -232,7 +238,7 @@ export function mapSafetyWalk(
         : raw === "pending"
           ? "pending"
           : mapStatus(action.status);
-      return mapWalkItem(item, actionStatus);
+      return mapWalkItem(item, actionStatus, mediaUrl);
     })
     .sort((a, b) => a.sortOrder - b.sortOrder);
 
@@ -241,8 +247,7 @@ export function mapSafetyWalk(
     title: row.title,
     siteId: row.site_id,
     siteName: site?.name,
-    skyddsombudName:
-      row.skyddsombud_name || row.attending_skyddsombud || row.skyddsombud || "—",
+    skyddsombudName: row.skyddsombud_name || "—",
     skyddsombudRole: row.skyddsombud_role || "",
     completedAt: row.completed_at,
     items,

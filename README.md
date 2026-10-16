@@ -1,36 +1,79 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# SiteSafety Nordic
 
-## Getting Started
+Mobile-first PWA for Swedish construction sites and plants: workers report near-misses
+(tillbud), hazards and accidents in three taps; the safety organisation follows up with
+CAPA, weekly skyddsronder (AFS 2001:1) and AML 3:3a notices to Arbetsmiljöverket.
 
-First, run the development server:
+- **Next.js 16 / React 19**, Tailwind 4, shadcn components, English + Swedish UI.
+- **Supabase** (Postgres, Storage, Auth, Realtime) when configured, otherwise an in-memory demo.
+- **Offline first**: reports written without signal are stored in IndexedDB and sent when the radio is back.
+- **Critical alerts**: critical incidents e-mail the safety officer via Resend, exactly once, verified server-side.
+
+## Run it
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+npm install
+npm run dev        # http://localhost:3000 — demo mode until Supabase is configured
+npm test           # vitest unit tests
+npm run lint
+npm run typecheck
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+## Connect Supabase
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+1. Copy `.env.local.example` to `.env.local` and set `NEXT_PUBLIC_SUPABASE_URL` and
+   `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` (or `..._ANON_KEY`). Both are public values.
+2. Apply the schema (tables, RLS policies, RPCs, storage bucket, realtime):
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+   ```bash
+   npx supabase login
+   npx supabase link --project-ref <your-project-ref>
+   npx supabase db push
+   npx supabase db query -f supabase/seed.sql   # optional demo sites and locations
+   ```
 
-## Learn More
+   Without the CLI, paste `supabase/migrations/*.sql` (then `supabase/seed.sql`) into the
+   SQL editor of the Supabase dashboard.
+3. Create the safety officers' accounts under **Authentication → Users** (email + password,
+   or invite by e-mail). Field workers never need an account.
 
-To learn more about Next.js, take a look at the following resources:
+### Security model
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+| Role | Can |
+| --- | --- |
+| Anonymous visitor (field worker) | read sites and locations, submit a report through the `submit_incident` RPC, upload photos / voice notes |
+| Signed-in user (safety officer) | read and update incidents, CAPA actions, skyddsronder and media |
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+The dashboard and `/skyddsrond` redirect to `/login` when Supabase is configured. Media lives in
+the private `incident-media` bucket and is served through short-lived signed URLs.
 
-## Deploy on Vercel
+## Critical-incident e-mail
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+Set `RESEND_API_KEY`, `SAFETY_ALERT_RECIPIENT` (comma-separated allowed), optionally `RESEND_FROM`
+and `NEXT_PUBLIC_APP_URL`. The browser pings `/api/alerts/critical-incident` after a report; the
+route calls the `claim_incident_alert` RPC, which returns the incident only if it is critical and
+has not been alerted before, so the e-mail can be neither forged nor duplicated.
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+For delivery that does not depend on the reporter's browser, add a **Database Webhook** in
+Supabase (table `incidents`, event `INSERT`, URL `https://<your-app>/api/alerts/critical-incident`,
+HTTP header `x-alert-secret: <ALERT_WEBHOOK_SECRET>`) and set `ALERT_WEBHOOK_SECRET` in the app.
+
+## Project layout
+
+```
+app/                 routes (report, dashboard, skyddsrond, login, api/alerts)
+components/          UI: report wizard, dashboard, skyddsrond checklist, auth, shell
+lib/data/            repository contract + Supabase and in-memory implementations
+lib/supabase/        client/server factories, row mappers, hand-maintained DB types
+lib/offline/         IndexedDB queue for reports written without a connection
+lib/alerts/          critical-incident payload, parsing and e-mail template
+lib/compliance/      AML 3:3a notice model and print template
+supabase/            migrations, seed data, CLI config
+tests/               vitest unit tests for the pure modules
+```
+
+## PWA
+
+`public/sw.js` caches the app shell (network-first for pages, cache-first for static assets) and is
+registered in production builds only. iOS splash screens are generated by
+`node scripts/generate-ios-assets.mjs`.

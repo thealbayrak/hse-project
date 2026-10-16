@@ -9,6 +9,23 @@ import {
 } from "@/lib/format";
 import type { DashboardMetrics, Incident } from "@/lib/types";
 
+function siteName(incident: Incident) {
+  return incident.siteName || siteLabel(incident.siteId);
+}
+
+function locationName(incident: Incident) {
+  return incident.locationName || locationLabel(incident.siteId, incident.locationId);
+}
+
+function escapeHtml(value: string) {
+  return value
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#39;");
+}
+
 export function downloadIncidentsCsv(incidents: Incident[]) {
   const header = [
     "Reference",
@@ -31,8 +48,8 @@ export function downloadIncidentsCsv(incidents: Incident[]) {
     [
       incident.reference,
       typeLabel(incident.type),
-      siteLabel(incident.siteId),
-      locationLabel(incident.siteId, incident.locationId),
+      siteName(incident),
+      locationName(incident),
       categoryLabel(incident.category),
       incident.severity,
       statusLabel(incident.status),
@@ -48,33 +65,34 @@ export function downloadIncidentsCsv(incidents: Incident[]) {
       .join(",")
   );
 
-  const blob = new Blob([[header.join(","), ...rows].join("\n")], {
+  // BOM so Excel opens Swedish characters correctly.
+  const blob = new Blob(["﻿", [header.join(","), ...rows].join("\n")], {
     type: "text/csv;charset=utf-8",
   });
   triggerDownload(blob, `sitesafety-nordic-summary-${stamp()}.csv`);
 }
 
-export function printIncidentsPdf(incidents: Incident[], metrics: DashboardMetrics) {
-  const popup = window.open("", "_blank", "noopener,noreferrer,width=900,height=700");
-  if (!popup) return false;
-
+export function buildIncidentsPdfHtml(incidents: Incident[], metrics: DashboardMetrics) {
   const rows = incidents
     .map(
       (incident) => `
         <tr>
-          <td>${incident.reference}</td>
-          <td>${typeLabel(incident.type)}</td>
-          <td>${locationLabel(incident.siteId, incident.locationId)}<br /><span class="muted">${siteLabel(incident.siteId)}</span></td>
-          <td>${incident.severity}</td>
-          <td>${statusLabel(incident.status)}</td>
-          <td>${incident.capa?.assigneeName ?? "—"}</td>
+          <td>${escapeHtml(incident.reference)}</td>
+          <td>${escapeHtml(typeLabel(incident.type))}</td>
+          <td>${escapeHtml(locationName(incident))}<br /><span class="muted">${escapeHtml(siteName(incident))}</span></td>
+          <td>${escapeHtml(incident.severity)}</td>
+          <td>${escapeHtml(statusLabel(incident.status))}</td>
+          <td>${escapeHtml(incident.capa?.assigneeName ?? "—")}</td>
         </tr>`
     )
     .join("");
 
-  popup.document.write(`<!doctype html>
+  const generatedAt = new Date().toLocaleString("en-GB", { timeZone: "Europe/Stockholm" });
+
+  return `<!doctype html>
 <html>
   <head>
+    <meta charset="utf-8" />
     <title>SiteSafety Nordic — SAM summary</title>
     <style>
       body { font-family: "Segoe UI", system-ui, sans-serif; color: #0f172a; padding: 32px; }
@@ -93,7 +111,7 @@ export function printIncidentsPdf(incidents: Incident[], metrics: DashboardMetri
   </head>
   <body>
     <h1>SiteSafety Nordic</h1>
-    <p class="sub">Incident and tillbud summary · SAM / Arbetsmiljöverket · ${new Date().toLocaleString("en-GB", { timeZone: "Europe/Stockholm" })}</p>
+    <p class="sub">Incident and tillbud summary · SAM / Arbetsmiljöverket · ${escapeHtml(generatedAt)}</p>
     <div class="metrics">
       <div class="metric"><span>Total reports</span><strong>${metrics.totalReports}</strong></div>
       <div class="metric"><span>Open actions</span><strong>${metrics.openActions}</strong></div>
@@ -110,7 +128,14 @@ export function printIncidentsPdf(incidents: Incident[], metrics: DashboardMetri
     </table>
     <footer>Critical incidents resulting in severe injury or danger must be reported immediately to Arbetsmiljöverket.</footer>
   </body>
-</html>`);
+</html>`;
+}
+
+export function printIncidentsPdf(incidents: Incident[], metrics: DashboardMetrics) {
+  const popup = window.open("", "_blank", "noopener,noreferrer,width=900,height=700");
+  if (!popup) return false;
+
+  popup.document.write(buildIncidentsPdfHtml(incidents, metrics));
   popup.document.close();
   popup.focus();
   popup.print();

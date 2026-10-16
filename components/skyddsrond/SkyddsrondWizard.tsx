@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useMemo, useRef, useState, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import {
@@ -22,6 +22,7 @@ import { useLanguage } from "@/lib/i18n/LanguageContext";
 import { SKYDDSROND_DOMAINS, skyddsrondTitle } from "@/lib/skyddsrond/checklist";
 import { useIncidentStore } from "@/lib/store/incident-store";
 import { cn } from "@/lib/utils";
+import { isImageFile } from "@/lib/media";
 import type { CreateSafetyWalkItemInput, SafetyWalkDomainId, SafetyWalkItemStatus, Site } from "@/lib/types";
 
 type ItemDraft = {
@@ -62,17 +63,15 @@ export function SkyddsrondWizard({
   const { t } = useLanguage();
   const { sites, createSafetyWalk } = useIncidentStore();
   const router = useRouter();
-  const [siteId, setSiteId] = useState("");
+  const [chosenSiteId, setSiteId] = useState("");
   const [title, setTitle] = useState("");
   const [skyddsombudName, setSkyddsombudName] = useState("");
   const [skyddsombudRole, setSkyddsombudRole] = useState("Skyddsombud");
   const [items, setItems] = useState<Record<string, ItemDraft>>(emptyItems);
   const [submitting, setSubmitting] = useState(false);
 
-  useEffect(() => {
-    if (!siteId && sites[0]) setSiteId(sites[0].id);
-  }, [siteId, sites]);
-
+  // Default to the first site until the user picks one.
+  const siteId = chosenSiteId || sites[0]?.id || "";
   const selectedSite = sites.find((site) => site.id === siteId) ?? null;
   const assessed = Object.values(items).filter((item) => item.status).length;
   const total = SKYDDSROND_DOMAINS.reduce((sum, domain) => sum + domain.items.length, 0);
@@ -325,7 +324,7 @@ function ChecklistRow({
 
   function attach(file: File | null) {
     if (draft.photoPreview) URL.revokeObjectURL(draft.photoPreview);
-    if (!file) {
+    if (!file || !isImageFile(file)) {
       onPhoto(null, null);
       return;
     }
@@ -386,7 +385,7 @@ function ChecklistRow({
             <input
               ref={fileRef}
               type="file"
-              accept="image/*"
+              accept="image/*,.heic,.heif"
               capture="environment"
               className="sr-only"
               onChange={(event) => attach(event.target.files?.[0] ?? null)}

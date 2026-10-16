@@ -2,7 +2,15 @@ import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 import { getSupabaseEnv, isSupabaseConfigured } from "@/lib/supabase/env";
 
+/** Routes only safety officers may open. Field reporting (/report) stays open. */
+const PROTECTED_PREFIXES = ["/dashboard", "/skyddsrond"];
+
+function isProtected(pathname: string) {
+  return PROTECTED_PREFIXES.some((prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`));
+}
+
 export async function proxy(request: NextRequest) {
+  // Demo mode (no Supabase): nothing to authenticate against.
   if (!isSupabaseConfigured()) {
     return NextResponse.next({ request });
   }
@@ -10,31 +18,49 @@ export async function proxy(request: NextRequest) {
   let response = NextResponse.next({ request });
 
   const { url, anonKey } = getSupabaseEnv();
-  const supabase = createServerClient(
-    url,
-    anonKey,
-    {
-      cookies: {
-        getAll() {
-          return request.cookies.getAll();
-        },
-        setAll(cookiesToSet) {
-          cookiesToSet.forEach(({ name, value }) => request.cookies.set(name, value));
-          response = NextResponse.next({ request });
-          cookiesToSet.forEach(({ name, value, options }) => {
-            response.cookies.set(name, value, options);
-          });
-        },
+  const supabase = createServerClient(url, anonKey, {
+    cookies: {
+      getAll() {
+        return request.cookies.getAll();
       },
-    }
-  );
+      setAll(cookiesToSet) {
+        cookiesToSet.forEach(({ name, value }) => request.cookies.set(name, value));
+        response = NextResponse.next({ request });
+        cookiesToSet.forEach(({ name, value, options }) => {
+          response.cookies.set(name, value, options);
+        });
+      },
+    },
+  });
 
-  await supabase.auth.getUser();
+  // Refreshes the session cookie and tells us whether someone is signed in.
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  const { pathname, search } = request.nextUrl;
+
+  if (!user && isProtected(pathname)) {
+    const login = request.nextUrl.clone();
+    login.pathname = "/login";
+    login.search = "";
+    login.searchParams.set("next", `${pathname}${search}`);
+    return NextResponse.redirect(login);
+  }
+
+  if (user && pathname === "/login") {
+    const next = request.nextUrl.searchParams.get("next");
+    const target = request.nextUrl.clone();
+    target.pathname = next && next.startsWith("/") && !next.startsWith("//") ? next.split("?")[0] : "/dashboard";
+    target.search = next && next.includes("?") ? `?${next.split("?")[1]}` : "";
+    return NextResponse.redirect(target);
+  }
+
   return response;
 }
 
 export const config = {
   matcher: [
-    "/((?!_next/static|_next/image|favicon.ico|sw.js|manifest.json|icons/|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)",
+    "/((?!_next/static|_next/image|favicon.ico|sw.js|manifest.json|icons/|splash/|api/|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)",
   ],
 };

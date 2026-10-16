@@ -21,8 +21,7 @@ function cloneIncidents(): Incident[] {
   return structuredClone(SEED_INCIDENTS);
 }
 
-function nextReference(incidents: Incident[]): string {
-  const year = new Date().getFullYear();
+export function nextReference(incidents: Pick<Incident, "reference">[], year = new Date().getFullYear()): string {
   const max = incidents.reduce((highest, incident) => {
     const match = incident.reference.match(/SS-\d{4}-(\d+)/);
     const n = match ? Number(match[1]) : 0;
@@ -31,6 +30,12 @@ function nextReference(incidents: Incident[]): string {
   return `SS-${year}-${String(max + 1).padStart(4, "0")}`;
 }
 
+function objectUrl(blob: Blob | null | undefined) {
+  if (!blob || blob.size === 0 || typeof URL?.createObjectURL !== "function") return null;
+  return URL.createObjectURL(blob);
+}
+
+/** In-memory repository used when Supabase is not configured (demo / offline dev). */
 export function createMockRepository(): IncidentRepository {
   let incidents = cloneIncidents();
   let walks: SafetyWalk[] = structuredClone(SEED_SAFETY_WALKS);
@@ -50,14 +55,23 @@ export function createMockRepository(): IncidentRepository {
     },
 
     async createIncident(input: CreateIncidentInput) {
-      const { photoFiles: _photos, audioFile: _audio, ...fields } = input;
       const created: Incident = {
         id: `inc-${crypto.randomUUID().slice(0, 8)}`,
         reference: nextReference(incidents),
-        ...fields,
+        type: input.type,
+        siteId: input.siteId,
+        locationId: input.locationId,
+        category: input.category,
+        severity: input.severity,
+        description: input.description,
+        mediaUrls: input.mediaUrls,
+        audioUrl: objectUrl(input.audioFile),
+        anonymous: input.anonymous,
+        reporterName: input.anonymous ? null : input.reporterName,
         status: "open",
         createdAt: new Date().toISOString(),
         capa: null,
+        source: "report",
       };
       incidents = [created, ...incidents];
       return withPlaceNames(structuredClone(created));
@@ -109,7 +123,7 @@ export function createMockRepository(): IncidentRepository {
           title: item.title,
           status: item.status,
           notes: item.notes,
-          photoUrl: item.photoFile ? URL.createObjectURL(item.photoFile) : null,
+          photoUrl: objectUrl(item.photoFile),
           sortOrder: item.sortOrder ?? index,
           actionStatus: item.status === "deviation" ? "pending" : null,
         })),

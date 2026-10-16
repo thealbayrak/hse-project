@@ -48,12 +48,15 @@ export interface Incident {
   severity: Severity;
   description: string;
   mediaUrls: string[];
+  audioUrl?: string | null;
   anonymous: boolean;
   reporterName: string | null;
   status: IncidentStatus;
   createdAt: string;
   capa: CapaAction | null;
   source?: "report" | "skyddsrond";
+  /** True for a report stored on the device while offline; it has no reference yet. */
+  pending?: boolean;
 }
 
 export interface CreateIncidentInput {

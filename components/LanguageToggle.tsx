@@ -10,13 +10,13 @@ export function LanguageToggle() {
     <div
       role="group"
       aria-label="Language / Språk"
-      className="inline-flex h-9 shrink-0 items-center rounded-full border border-border bg-secondary/50 p-0.5 text-[11px] font-semibold tracking-wide"
+      className="inline-flex h-11 shrink-0 items-center rounded-full border border-border bg-secondary/50 p-0.5 text-[11px] font-semibold tracking-wide"
     >
       <button
         type="button"
         onClick={() => setLocale("sv")}
         className={cn(
-          "rounded-full px-2 py-1",
+          "rounded-full px-2.5 py-1.5",
           locale === "sv" ? "bg-amber-500 text-slate-950" : "text-muted-foreground"
         )}
         aria-pressed={locale === "sv"}
@@ -28,7 +28,7 @@ export function LanguageToggle() {
         type="button"
         onClick={() => setLocale("en")}
         className={cn(
-          "rounded-full px-2 py-1",
+          "rounded-full px-2.5 py-1.5",
           locale === "en" ? "bg-amber-500 text-slate-950" : "text-muted-foreground"
         )}
         aria-pressed={locale === "en"}
