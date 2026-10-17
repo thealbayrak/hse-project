@@ -581,6 +581,8 @@ export const en = {
     pharmacy: "Pharmacy",
     loading: "Finding the nearest hospital and pharmacy…",
     none: "No care points found nearby. Call 112.",
+    unavailable: "The map service did not answer. Try again, or call 112.",
+    retry: "Try again",
     call112: "Call 112",
     directions: "Directions",
     km: "{n} km",

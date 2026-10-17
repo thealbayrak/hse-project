@@ -583,6 +583,8 @@ export const sv: MessageTable = {
     pharmacy: "Apotek",
     loading: "Söker närmaste sjukhus och apotek…",
     none: "Inga vårdställen hittades i närheten. Ring 112.",
+    unavailable: "Karttjänsten svarade inte. Försök igen, eller ring 112.",
+    retry: "Försök igen",
     call112: "Ring 112",
     directions: "Vägbeskrivning",
     km: "{n} km",

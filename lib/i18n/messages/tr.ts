@@ -582,6 +582,8 @@ export const tr: MessageTable = {
     pharmacy: "Eczane",
     loading: "En yakın hastane ve eczane aranıyor…",
     none: "Yakında sağlık noktası bulunamadı. 112'yi ara.",
+    unavailable: "Harita servisi yanıt vermedi. Tekrar deneyin ya da 112 arayın.",
+    retry: "Tekrar dene",
     call112: "112'yi ara",
     directions: "Yol tarifi",
     km: "{n} km",

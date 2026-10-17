@@ -70,23 +70,45 @@ export function overpassQuery(lat: number, lng: number, radiusMetres: number) {
 out center tags;`;
 }
 
-const ENDPOINTS = ["https://overpass-api.de/api/interpreter", "https://overpass.kumi.systems/api/interpreter"];
+const ENDPOINTS = [
+  "https://overpass-api.de/api/interpreter",
+  "https://overpass.kumi.systems/api/interpreter",
+  "https://overpass.private.coffee/api/interpreter",
+];
+const USER_AGENT = "SiteSafetyNordic/1.0 (+https://hse-project-tau.vercel.app)";
+const ATTEMPT_TIMEOUT_MS = 14_000;
 
-/** Queries OpenStreetMap (no API key) for hospitals, clinics and pharmacies around a point. */
+/**
+ * Queries OpenStreetMap (no API key) for hospitals, clinics and pharmacies
+ * around a point. The public Overpass servers are often busy, so each mirror
+ * is tried with POST and then GET before moving on.
+ */
 export async function fetchNearbyPlaces(lat: number, lng: number, radiusMetres = 15_000): Promise<NearbyPlace[]> {
+  const query = overpassQuery(lat, lng, radiusMetres);
+  const encoded = `data=${encodeURIComponent(query)}`;
   let lastError: unknown = null;
   for (const endpoint of ENDPOINTS) {
-    try {
-      const response = await fetch(endpoint, {
-        method: "POST",
-        headers: { "Content-Type": "application/x-www-form-urlencoded" },
-        body: `data=${encodeURIComponent(overpassQuery(lat, lng, radiusMetres))}`,
-        signal: AbortSignal.timeout(25_000),
-      });
-      if (!response.ok) throw new Error(`Overpass ${response.status}`);
-      return parseOverpass((await response.json()) as { elements?: OverpassElement[] }, lat, lng);
-    } catch (caught) {
-      lastError = caught;
+    for (const method of ["POST", "GET"] as const) {
+      try {
+        const response =
+          method === "POST"
+            ? await fetch(endpoint, {
+                method,
+                headers: { "Content-Type": "application/x-www-form-urlencoded", "User-Agent": USER_AGENT },
+                body: encoded,
+                signal: AbortSignal.timeout(ATTEMPT_TIMEOUT_MS),
+              })
+            : await fetch(`${endpoint}?${encoded}`, {
+                headers: { "User-Agent": USER_AGENT },
+                signal: AbortSignal.timeout(ATTEMPT_TIMEOUT_MS),
+              });
+        if (!response.ok) throw new Error(`Overpass ${response.status}`);
+        const json = (await response.json()) as { elements?: OverpassElement[] };
+        if (!Array.isArray(json.elements)) throw new Error("Overpass: no elements");
+        return parseOverpass(json, lat, lng);
+      } catch (caught) {
+        lastError = caught;
+      }
     }
   }
   throw lastError instanceof Error ? lastError : new Error("Overpass unavailable");

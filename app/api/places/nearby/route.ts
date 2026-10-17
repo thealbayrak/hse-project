@@ -3,6 +3,8 @@ import { fetchNearbyPlaces } from "@/lib/places/overpass";
 import type { NearbyPlace } from "@/lib/types";
 
 export const runtime = "nodejs";
+// Up to three mirrors × two attempts; the public Overpass servers can be slow.
+export const maxDuration = 60;
 
 // Sites rarely move: cache per rounded coordinate for a day.
 const cache = new Map<string, { at: number; places: NearbyPlace[] }>();

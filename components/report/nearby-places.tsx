@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { HospitalIcon, Loader2Icon, NavigationIcon, PhoneCallIcon, PillIcon, StethoscopeIcon } from "lucide-react";
+import { HospitalIcon, Loader2Icon, NavigationIcon, PhoneCallIcon, PillIcon, RefreshCwIcon, StethoscopeIcon } from "lucide-react";
 import { useLanguage } from "@/lib/i18n/LanguageContext";
 import { panelClass } from "@/lib/tones";
 import { cn } from "@/lib/utils";
@@ -13,6 +13,7 @@ const ICONS = { hospital: HospitalIcon, clinic: StethoscopeIcon, pharmacy: PillI
 export function NearbyPlaces({ latitude, longitude }: { latitude: number; longitude: number }) {
   const { t } = useLanguage();
   const [state, setState] = useState<{ status: "loading" } | { status: "done"; places: NearbyPlace[] } | { status: "failed" }>({ status: "loading" });
+  const [attempt, setAttempt] = useState(0);
 
   useEffect(() => {
     let cancelled = false;
@@ -30,7 +31,7 @@ export function NearbyPlaces({ latitude, longitude }: { latitude: number; longit
       cancelled = true;
       controller.abort();
     };
-  }, [latitude, longitude]);
+  }, [latitude, longitude, attempt]);
 
   return (
     <div className={cn("rounded-2xl border p-4", panelClass.danger)}>
@@ -50,7 +51,22 @@ export function NearbyPlaces({ latitude, longitude }: { latitude: number; longit
           {t("places.loading")}
         </p>
       )}
-      {state.status === "failed" && <p className="mt-3 text-sm">{t("places.none")}</p>}
+      {state.status === "failed" && (
+        <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
+          <p className="text-sm">{t("places.unavailable")}</p>
+          <button
+            type="button"
+            onClick={() => {
+              setState({ status: "loading" });
+              setAttempt((value) => value + 1);
+            }}
+            className="inline-flex h-10 items-center gap-2 rounded-lg bg-background/80 px-3 text-sm font-medium"
+          >
+            <RefreshCwIcon className="size-4" />
+            {t("places.retry")}
+          </button>
+        </div>
+      )}
       {state.status === "done" && (
         <ul className="mt-3 space-y-2">
           {state.places.length === 0 && <li className="text-sm">{t("places.none")}</li>}
