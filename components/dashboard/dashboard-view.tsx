@@ -13,6 +13,8 @@ import {
   ClipboardPlusIcon,
   DownloadIcon,
   FileSpreadsheetIcon,
+  KanbanSquareIcon,
+  ListIcon,
   ShieldAlertIcon,
   UserRoundXIcon,
 } from "lucide-react";
@@ -20,6 +22,7 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { StatutoryBanner } from "@/components/layout/statutory-banner";
+import { IncidentBoard } from "@/components/dashboard/incident-board";
 import { IncidentDetailDialog } from "@/components/dashboard/incident-detail-dialog";
 import { LatestSkyddsrondCard } from "@/components/dashboard/latest-skyddsrond-card";
 import { SkyddsrondDialog } from "@/components/skyddsrond/skyddsrond-dialog";
@@ -66,6 +69,7 @@ export function DashboardView() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [dismissedDeepLink, setDismissedDeepLink] = useState<string | null>(null);
   const [skyddsrondOpen, setSkyddsrondOpen] = useState(false);
+  const [view, setView] = useState<"list" | "board">("list");
   const deepLinkId = searchParams.get("incidentId");
 
   // `?incidentId=` (from the alert email) opens the incident until the user closes it.
@@ -220,6 +224,23 @@ export function DashboardView() {
           </p>
         </div>
         <div className="grid grid-cols-2 gap-2 sm:flex">
+          <div role="group" aria-label={t("board.view")} className="col-span-2 inline-flex h-12 items-center rounded-lg border border-border bg-secondary/40 p-1 sm:col-span-1">
+            {(["list", "board"] as const).map((mode) => (
+              <button
+                key={mode}
+                type="button"
+                aria-pressed={view === mode}
+                onClick={() => setView(mode)}
+                className={cn(
+                  "inline-flex h-full flex-1 items-center justify-center gap-2 rounded-md px-3 text-sm font-medium transition-colors",
+                  view === mode ? "bg-background text-foreground shadow-sm" : "text-muted-foreground"
+                )}
+              >
+                {mode === "list" ? <ListIcon className="size-4" /> : <KanbanSquareIcon className="size-4" />}
+                {t(`board.${mode}`)}
+              </button>
+            ))}
+          </div>
           <Button className="h-12" variant="outline" onClick={exportCsv}>
             <FileSpreadsheetIcon className="size-4" />
             {t("buttons.exportCsv")}
@@ -251,7 +272,11 @@ export function DashboardView() {
         ))}
       </div>
 
-      <div className="space-y-2">
+      {view === "board" && !showSkeleton && (
+        <IncidentBoard incidents={filtered} highlightedIds={highlightedIds} onOpen={setSelectedId} />
+      )}
+
+      <div className={cn("space-y-2", view === "board" && !showSkeleton && "hidden")}>
         {showSkeleton &&
           [0, 1, 2].map((index) => (
             <div key={index} className="flex h-[4.5rem] overflow-hidden rounded-2xl border border-border bg-card">

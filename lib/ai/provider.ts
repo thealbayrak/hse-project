@@ -1,5 +1,5 @@
 import type { Locale } from "@/lib/i18n/translations";
-import type { IncidentType, RiskCategory } from "@/lib/types";
+import type { Incident, IncidentAnalysis, IncidentType, RiskCategory, Site } from "@/lib/types";
 
 /** What the assistant extracts from a worker's spoken or written report. */
 export interface ReportAnalysis {
@@ -15,6 +15,9 @@ export interface ReportAnalysis {
   category: RiskCategory | null;
   hurt: boolean | null;
   danger: boolean | null;
+  /** Site / area the worker mentioned, matched against the list the app passed in. */
+  siteId: string | null;
+  locationId: string | null;
   /** 0–1; below 0.5 the UI asks the worker to check the suggestions. */
   confidence: number;
 }
@@ -24,9 +27,18 @@ export interface AnalyzeInput {
   text?: string;
   /** UI language, used only as a hint when the audio is ambiguous. */
   uiLocale: Locale;
+  /** Sites and areas the worker may be referring to (ids are what we want back). */
+  sites?: Pick<Site, "id" | "name" | "locations">[];
+}
+
+export interface IncidentAnalysisInput {
+  incident: Incident;
+  /** Language the officer reads; the analysis is written in it. */
+  language: Locale;
 }
 
 export interface ReportAnalyzer {
   readonly name: string;
   analyze(input: AnalyzeInput): Promise<ReportAnalysis>;
+  analyzeIncident(input: IncidentAnalysisInput): Promise<IncidentAnalysis>;
 }

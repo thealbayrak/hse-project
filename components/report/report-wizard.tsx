@@ -92,6 +92,7 @@ export function ReportWizard({ aiEnabled = false }: { aiEnabled?: boolean }) {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const descriptionAnchor = useRef("");
   const analyzedBlobRef = useRef<Blob | null>(null);
+  const quickRef = useRef(false);
   const lastSite = useSyncExternalStore(subscribeLastSite, readLastSite, serverLastSite);
 
   const voice = useVoiceCapture((text) => {
@@ -124,30 +125,50 @@ export function ReportWizard({ aiEnabled = false }: { aiEnabled?: boolean }) {
   }
 
   // A finished voice note is sent to the assistant once; the result fills the form.
+  // Recorded on step 0 ("just say what happened") it also fills type and place.
   useEffect(() => {
     const blob = voice.audioBlob;
     if (!aiEnabled || !blob || analyzedBlobRef.current === blob) return;
     analyzedBlobRef.current = blob;
-    Promise.resolve().then(() => runAnalysis({ audio: blob }));
+    const quick = quickRef.current;
+    Promise.resolve().then(() => runAnalysis({ audio: blob, quick }));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [voice.audioBlob, aiEnabled]);
 
-  async function runAnalysis(input: { audio?: Blob; text?: string }) {
+  async function runAnalysis(input: { audio?: Blob; text?: string; quick?: boolean }) {
     setAnalysis({ status: "working" });
     try {
-      const result = await analyzeReport({ ...input, locale });
-      setDraft((current) => ({
-        ...current,
-        description: result.transcript || current.description,
-        category: current.category ?? result.category,
-        hurt: current.hurt ?? result.hurt,
-        danger: current.danger ?? result.danger,
-        summarySv: result.summarySv || null,
-        originalLanguage: result.originalLanguage || null,
-        originalText: result.transcript || current.description || null,
-        aiConfidence: result.confidence,
-      }));
+      const result = await analyzeReport({ ...input, locale, sites });
+      let next: Draft | null = null;
+      setDraft((current) => {
+        next = {
+          ...current,
+          type: current.type ?? result.type,
+          siteId: current.siteId || result.siteId || "",
+          locationId: current.locationId || (result.siteId && (!current.siteId || current.siteId === result.siteId) ? result.locationId ?? "" : ""),
+          description: result.transcript || current.description,
+          category: current.category ?? result.category,
+          hurt: current.hurt ?? result.hurt,
+          danger: current.danger ?? result.danger,
+          summarySv: result.summarySv || null,
+          originalLanguage: result.originalLanguage || null,
+          originalText: result.transcript || current.description || null,
+          aiConfidence: result.confidence,
+        };
+        return next;
+      });
       setAnalysis({ status: "done", result });
+      if (input.quick && next) {
+        // Everything known? Go straight to the check-and-send step; otherwise stop where something is missing.
+        const filled = next as Draft;
+        const siteKnown = Boolean(filled.siteId || lastSite) && Boolean(filled.locationId || lastSite?.locationId);
+        const detailsKnown = Boolean(filled.category && filled.hurt !== null && filled.danger !== null && filled.description.trim().length >= 8);
+        if (filled.type && siteKnown && detailsKnown) setStep(2);
+        else if (filled.type && siteKnown) setStep(1);
+        if (!filled.type) toast.message(t("quick.missingType"));
+        else if (!siteKnown) toast.message(t("quick.missingPlace"));
+        else toast.success(t("quick.filled"));
+      }
     } catch (caught) {
       setAnalysis({ status: "failed", error: caught instanceof Error ? caught.message : "failed" });
     }
@@ -177,7 +198,7 @@ export function ReportWizard({ aiEnabled = false }: { aiEnabled?: boolean }) {
     }));
   }
 
-  async function toggleVoice() {
+  async function toggleVoice(quick = false) {
     if (!voice.supported) {
       toast.error(t("toast.voiceUnavailable"));
       return;
@@ -187,6 +208,7 @@ export function ReportWizard({ aiEnabled = false }: { aiEnabled?: boolean }) {
       if (!aiEnabled) toast.success(t("toast.voiceCaptured"));
       return;
     }
+    quickRef.current = quick;
     descriptionAnchor.current = draft.description.trim();
     try {
       await voice.toggle();
@@ -316,6 +338,37 @@ export function ReportWizard({ aiEnabled = false }: { aiEnabled?: boolean }) {
 
       {step === 0 && (
         <section className="space-y-6">
+          {aiEnabled && (
+            <div className={cn("rounded-2xl border p-4", panelClass.info)}>
+              <div className="flex items-start gap-3">
+                <LanguagesIcon className="mt-0.5 size-5 shrink-0" />
+                <div className="min-w-0 flex-1">
+                  <h2 className="text-lg font-semibold">{t("quick.title")}</h2>
+                  <p className="text-sm opacity-80">{t("quick.hint")}</p>
+                </div>
+              </div>
+              <Button
+                type="button"
+                variant={voice.recording ? "destructive" : "default"}
+                className="mt-4 h-16 w-full gap-3 text-base"
+                onClick={() => void toggleVoice(true)}
+                disabled={analysis.status === "working"}
+              >
+                {analysis.status === "working" ? (
+                  <Loader2Icon className="size-5 animate-spin" />
+                ) : voice.recording ? (
+                  <SquareIcon className="size-5" />
+                ) : (
+                  <MicIcon className="size-5" />
+                )}
+                {analysis.status === "working" ? t("ai.analyzing") : voice.recording ? t("quick.stop") : t("quick.record")}
+              </Button>
+              {analysis.status === "failed" && (
+                <p className={cn("mt-3 rounded-lg border px-3 py-2 text-sm", panelClass.warning)}>{t("ai.unavailable")}</p>
+              )}
+            </div>
+          )}
+
           <fieldset>
             <legend className="mb-3 text-lg font-semibold">{t("incident.whatToReport")}</legend>
             <div className="grid gap-3">

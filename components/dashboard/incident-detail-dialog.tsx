@@ -1,10 +1,11 @@
 "use client";
 
 import { useState } from "react";
-import { FileText } from "lucide-react";
+import { CalendarPlusIcon, FileText, Loader2Icon, SparklesIcon } from "lucide-react";
 import { toast } from "sonner";
 import { AmlNoticeDialog } from "@/components/dashboard/aml-notice-dialog";
-import { languageName } from "@/lib/ai/client";
+import { MeetingDialog } from "@/components/dashboard/meeting-dialog";
+import { analyzeIncident, languageName } from "@/lib/ai/client";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -63,6 +64,7 @@ function IncidentDetail({ incident, onClose }: { incident: Incident; onClose: ()
   const [publicNote, setPublicNote] = useState(() => incident.publicNote ?? "");
   const [saving, setSaving] = useState(false);
   const [amlOpen, setAmlOpen] = useState(false);
+  const [meetingOpen, setMeetingOpen] = useState(false);
   const site = sites.find((item) => item.id === incident.siteId) ?? null;
 
   async function save() {
@@ -141,15 +143,28 @@ function IncidentDetail({ incident, onClose }: { incident: Incident; onClose: ()
         {t("dashboard.reported", { when: formatDateTime(incident.createdAt, locale) })}
       </p>
 
-      <Button
-        type="button"
-        variant="outline"
-        className={cn("h-12 w-full gap-2", panelClass.danger)}
-        onClick={() => setAmlOpen(true)}
-      >
-        <FileText className="size-4" />
-        {t("buttons.generateAml")}
-      </Button>
+      <AnalysisPanel incident={incident} />
+
+      <div className="grid gap-2 sm:grid-cols-2">
+        <Button
+          type="button"
+          variant="outline"
+          className={cn("h-12 w-full gap-2", panelClass.danger)}
+          onClick={() => setAmlOpen(true)}
+        >
+          <FileText className="size-4" />
+          {t("buttons.generateAml")}
+        </Button>
+        <Button
+          type="button"
+          variant="outline"
+          className={cn("h-12 w-full gap-2", panelClass.warning)}
+          onClick={() => setMeetingOpen(true)}
+        >
+          <CalendarPlusIcon className="size-4" />
+          {t("meeting.plan")}
+        </Button>
+      </div>
 
       {!!incident.mediaUrls.length && (
         <div className="grid grid-cols-3 gap-2">
@@ -284,7 +299,85 @@ function IncidentDetail({ incident, onClose }: { incident: Incident; onClose: ()
       </DialogFooter>
 
       <AmlNoticeDialog incident={incident} site={site} open={amlOpen} onClose={() => setAmlOpen(false)} />
+      <MeetingDialog incident={incident} open={meetingOpen} onClose={() => setMeetingOpen(false)} />
     </>
+  );
+}
+
+/** Officer-side assistant: root causes, actions, AML advice. Stored on the incident. */
+function AnalysisPanel({ incident }: { incident: Incident }) {
+  const { locale, t } = useLanguage();
+  const { saveIncidentAnalysis } = useIncidentStore();
+  const [working, setWorking] = useState(false);
+  const analysis = incident.aiAnalysis ?? null;
+
+  async function run() {
+    setWorking(true);
+    try {
+      const result = await analyzeIncident(incident, locale);
+      await saveIncidentAnalysis(incident.id, result, locale);
+    } catch (caught) {
+      // Supabase errors are plain objects with a message, not Error instances.
+      const message = (caught as { message?: unknown } | null)?.message;
+      toast.error(typeof message === "string" && message ? message : t("analysis.failed"));
+    } finally {
+      setWorking(false);
+    }
+  }
+
+  return (
+    <div className={cn("rounded-xl border p-4", panelClass.info)}>
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <h3 className="flex items-center gap-2 text-sm font-semibold tracking-wide uppercase">
+          <SparklesIcon className="size-4" />
+          {t("analysis.title")}
+        </h3>
+        <Button type="button" variant="outline" size="sm" className="h-10 gap-2 bg-background/60" disabled={working} onClick={() => void run()}>
+          {working ? <Loader2Icon className="size-4 animate-spin" /> : <SparklesIcon className="size-4" />}
+          {working ? t("analysis.working") : analysis ? t("analysis.regenerate") : t("analysis.generate")}
+        </Button>
+      </div>
+
+      {analysis && (
+        <div className="mt-3 space-y-3 text-sm">
+          <p className="leading-relaxed">{analysis.summary}</p>
+          <div className="flex flex-wrap gap-2">
+            <span className={cn("rounded-full border px-2.5 py-1 text-xs font-medium", severityClass[analysis.riskLevel])}>
+              {t("analysis.risk")}: {severityLabel(analysis.riskLevel, locale)}
+            </span>
+            <span className={cn("rounded-full border px-2.5 py-1 text-xs font-medium", analysis.amlReportRequired ? panelClass.danger : panelClass.success)}>
+              {t("analysis.aml")}: {analysis.amlReportRequired ? t("analysis.amlYes") : t("analysis.amlNo")}
+            </span>
+            <span className={cn("rounded-full border px-2.5 py-1 text-xs font-medium", analysis.meetingRecommended ? panelClass.warning : "border-border")}>
+              {analysis.meetingRecommended ? t("analysis.meetingYes") : t("analysis.meetingNo")}
+            </span>
+          </div>
+          {analysis.amlReason && <p className="text-xs opacity-80">{analysis.amlReason}</p>}
+          <AnalysisList title={t("analysis.rootCauses")} items={analysis.rootCauses} />
+          <AnalysisList title={t("analysis.immediate")} items={analysis.immediateActions} />
+          <AnalysisList title={t("analysis.preventive")} items={analysis.preventiveActions} />
+          {analysis.meetingRecommended && <AnalysisList title={t("analysis.agenda")} items={analysis.meetingAgenda} />}
+          <p className="text-xs opacity-70">
+            {incident.aiAnalyzedAt ? t("analysis.generatedAt", { when: formatDateTime(incident.aiAnalyzedAt, locale) }) + " · " : ""}
+            {t("analysis.disclaimer")}
+          </p>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function AnalysisList({ title, items }: { title: string; items: string[] }) {
+  if (!items.length) return null;
+  return (
+    <div>
+      <p className="text-[11px] font-semibold tracking-wide uppercase opacity-80">{title}</p>
+      <ul className="mt-1 list-disc space-y-0.5 pl-5">
+        {items.map((item) => (
+          <li key={item}>{item}</li>
+        ))}
+      </ul>
+    </div>
   );
 }
 

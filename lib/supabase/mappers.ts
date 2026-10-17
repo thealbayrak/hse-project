@@ -10,7 +10,9 @@ import type {
 } from "@/lib/supabase/database.types";
 import type {
   CapaAction,
+  Contact,
   Incident,
+  IncidentAnalysis,
   IncidentStatus,
   IncidentType,
   RiskCategory,
@@ -141,6 +143,9 @@ export function mapIncident(row: IncidentQueryRow, mediaUrl: MediaUrlResolver = 
     summarySv: row.summary_sv ?? null,
     trackingCode: row.tracking_code ?? null,
     publicNote: row.public_note ?? null,
+    aiAnalysis: parseAnalysis(row.ai_analysis),
+    aiAnalysisLanguage: row.ai_analysis_language ?? null,
+    aiAnalyzedAt: row.ai_analyzed_at ?? null,
     anonymous: Boolean(row.is_anonymous),
     reporterName: row.reporter_name,
     status: mapStatus(row.status),
@@ -171,6 +176,32 @@ export function mapSite(row: SiteQueryRow): Site {
     organizationName: org?.name,
     locations: locations.length ? locations : [{ id: row.id, name: row.name }],
   };
+}
+
+function stringList(value: unknown): string[] {
+  return Array.isArray(value) ? value.filter((item): item is string => typeof item === "string") : [];
+}
+
+/** Tolerant parse of the stored assistant analysis (jsonb). */
+export function parseAnalysis(value: unknown): IncidentAnalysis | null {
+  if (!value || typeof value !== "object") return null;
+  const raw = value as Record<string, unknown>;
+  if (typeof raw.summary !== "string") return null;
+  return {
+    summary: raw.summary,
+    rootCauses: stringList(raw.rootCauses),
+    immediateActions: stringList(raw.immediateActions),
+    preventiveActions: stringList(raw.preventiveActions),
+    amlReportRequired: Boolean(raw.amlReportRequired),
+    amlReason: typeof raw.amlReason === "string" ? raw.amlReason : "",
+    riskLevel: mapSeverity(typeof raw.riskLevel === "string" ? raw.riskLevel : "medium"),
+    meetingRecommended: Boolean(raw.meetingRecommended),
+    meetingAgenda: stringList(raw.meetingAgenda),
+  };
+}
+
+export function mapContact(row: { id: string; name: string; email: string; role: string | null }): Contact {
+  return { id: row.id, name: row.name, email: row.email, role: row.role };
 }
 
 export function mapTracked(row: {

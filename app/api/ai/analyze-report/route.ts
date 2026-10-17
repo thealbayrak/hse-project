@@ -8,6 +8,30 @@ export const maxDuration = 60;
 const MAX_AUDIO_BYTES = 12 * 1024 * 1024;
 const MAX_TEXT_CHARS = 4000;
 
+type SiteHint = { id: string; name: string; locations: { id: string; name: string }[] };
+
+/** The site list is public data; it only helps the assistant map spoken place names to ids. */
+function parseSites(value: FormDataEntryValue | null): SiteHint[] {
+  if (typeof value !== "string" || !value) return [];
+  try {
+    const parsed = JSON.parse(value) as unknown;
+    if (!Array.isArray(parsed)) return [];
+    return parsed
+      .filter((site): site is SiteHint => Boolean(site) && typeof (site as SiteHint).id === "string" && typeof (site as SiteHint).name === "string")
+      .slice(0, 50)
+      .map((site) => ({
+        id: site.id,
+        name: site.name.slice(0, 120),
+        locations: (Array.isArray(site.locations) ? site.locations : [])
+          .filter((l) => l && typeof l.id === "string" && typeof l.name === "string")
+          .slice(0, 50)
+          .map((l) => ({ id: l.id, name: l.name.slice(0, 120) })),
+      }));
+  } catch {
+    return [];
+  }
+}
+
 /** Lets the client know whether the voice/text assistant is available. */
 export async function GET() {
   return NextResponse.json({ enabled: isReportAnalysisEnabled() });
@@ -35,6 +59,7 @@ export async function POST(request: Request) {
   const uiLocale: Locale = typeof localeValue === "string" && isLocale(localeValue) ? localeValue : "sv";
   const audio = form.get("audio");
   const text = form.get("text");
+  const sites = parseSites(form.get("sites"));
 
   try {
     if (audio instanceof Blob && audio.size > 0) {
@@ -46,12 +71,12 @@ export async function POST(request: Request) {
         return NextResponse.json({ ok: false, error: "Only audio files are accepted." }, { status: 415 });
       }
       const data = new Uint8Array(await audio.arrayBuffer());
-      const analysis = await analyzer.analyze({ audio: { data, mimeType }, uiLocale });
+      const analysis = await analyzer.analyze({ audio: { data, mimeType }, uiLocale, sites });
       return NextResponse.json({ ok: true, provider: analyzer.name, analysis });
     }
 
     if (typeof text === "string" && text.trim().length >= 8) {
-      const analysis = await analyzer.analyze({ text: text.trim().slice(0, MAX_TEXT_CHARS), uiLocale });
+      const analysis = await analyzer.analyze({ text: text.trim().slice(0, MAX_TEXT_CHARS), uiLocale, sites });
       return NextResponse.json({ ok: true, provider: analyzer.name, analysis });
     }
 

@@ -4,7 +4,7 @@ import { SEED_INCIDENTS } from "@/lib/data/seed-incidents";
 import { SEED_SAFETY_WALKS } from "@/lib/data/seed-walks";
 import { findLocation, findSite, SITES } from "@/lib/data/sites";
 import { toSafetyWalkSummary } from "@/lib/supabase/mappers";
-import type { CreateIncidentInput, CreateSafetyWalkInput, Incident, SafetyWalk, UpdateCapaInput } from "@/lib/types";
+import type { Contact, CreateIncidentInput, CreateSafetyWalkInput, Incident, SafetyWalk, UpdateCapaInput } from "@/lib/types";
 
 function withPlaceNames(incident: Incident): Incident {
   return {
@@ -55,6 +55,10 @@ function objectUrl(blob: Blob | null | undefined) {
 export function createMockRepository(): IncidentRepository {
   let incidents = cloneIncidents();
   let walks: SafetyWalk[] = structuredClone(SEED_SAFETY_WALKS);
+  let contacts: Contact[] = [
+    { id: "contact-anna", name: "Anna Bergström", email: "anna.bergstrom@example.se", role: "HSE Manager" },
+    { id: "contact-erik", name: "Erik Lindqvist", email: "erik.lindqvist@example.se", role: "Safety Officer" },
+  ];
 
   return {
     async listSites() {
@@ -121,6 +125,51 @@ export function createMockRepository(): IncidentRepository {
 
     async getMetrics() {
       return computeMetrics(incidents);
+    },
+
+    async updateStatus(incidentId, status) {
+      const index = incidents.findIndex((incident) => incident.id === incidentId);
+      if (index === -1) throw new Error(`Incident ${incidentId} not found`);
+      const current = incidents[index];
+      const updated: Incident = {
+        ...current,
+        status,
+        capa: current.capa ? { ...current.capa, status, updatedAt: new Date().toISOString() } : null,
+      };
+      incidents[index] = updated;
+      return withPlaceNames(structuredClone(updated));
+    },
+
+    async saveIncidentAnalysis(incidentId, analysis, language) {
+      const index = incidents.findIndex((incident) => incident.id === incidentId);
+      if (index === -1) throw new Error(`Incident ${incidentId} not found`);
+      const updated: Incident = {
+        ...incidents[index],
+        aiAnalysis: analysis,
+        aiAnalysisLanguage: language,
+        aiAnalyzedAt: new Date().toISOString(),
+      };
+      incidents[index] = updated;
+      return withPlaceNames(structuredClone(updated));
+    },
+
+    async listContacts() {
+      return structuredClone(contacts);
+    },
+
+    async addContact(input) {
+      const contact: Contact = {
+        id: `contact-${crypto.randomUUID().slice(0, 8)}`,
+        name: input.name.trim(),
+        email: input.email.trim().toLowerCase(),
+        role: input.role?.trim() || null,
+      };
+      contacts = [...contacts, contact].sort((a, b) => a.name.localeCompare(b.name));
+      return structuredClone(contact);
+    },
+
+    async removeContact(id) {
+      contacts = contacts.filter((contact) => contact.id !== id);
     },
 
     async trackIncident(code) {

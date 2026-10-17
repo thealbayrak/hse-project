@@ -3,10 +3,11 @@ import type { IncidentRepository, RealtimeIncidentHandler } from "@/lib/data/rep
 import { createBrowserSupabaseClient } from "@/lib/supabase/client";
 import { audioExtension, sanitizeFileName } from "@/lib/media";
 import { addBusinessDaysIsoDate } from "@/lib/skyddsrond/business-days";
-import type { Database } from "@/lib/supabase/database.types";
+import type { Database, Json } from "@/lib/supabase/database.types";
 import {
   incidentMediaPaths,
   isSkyddsrondIncident,
+  mapContact,
   mapIncident,
   mapSafetyWalk,
   mapSite,
@@ -19,9 +20,12 @@ import {
   type SiteQueryRow,
 } from "@/lib/supabase/mappers";
 import type {
+  Contact,
   CreateIncidentInput,
   CreateSafetyWalkInput,
   Incident,
+  IncidentAnalysis,
+  IncidentStatus,
   SafetyWalk,
   SafetyWalkSummary,
   Site,
@@ -254,6 +258,61 @@ export class SupabaseIncidentRepository implements IncidentRepository {
     if (created.error) throw created.error;
     if (!created.data) throw new Error("Skyddsrond was saved but could not be reloaded.");
     return this.hydrateWalk(created.data as unknown as SafetyWalkQueryRow);
+  }
+
+  async updateStatus(incidentId: string, status: IncidentStatus): Promise<Incident> {
+    const update = await this.client.from("incidents").update({ status }).eq("id", incidentId);
+    if (update.error) throw update.error;
+    // Keep the latest CAPA row in step so the detail dialog and /track agree.
+    const latest = await this.client
+      .from("actions")
+      .select("id")
+      .eq("incident_id", incidentId)
+      .order("updated_at", { ascending: false, nullsFirst: false })
+      .limit(1)
+      .maybeSingle();
+    if (!latest.error && latest.data?.id) {
+      await this.client.from("actions").update({ status }).eq("id", latest.data.id);
+    }
+    const incident = await this.getIncident(incidentId);
+    if (!incident) throw new Error("Status was saved but the incident could not be reloaded.");
+    return incident;
+  }
+
+  async saveIncidentAnalysis(incidentId: string, analysis: IncidentAnalysis, language: string): Promise<Incident> {
+    const update = await this.client
+      .from("incidents")
+      .update({
+        ai_analysis: analysis as unknown as Json,
+        ai_analysis_language: language,
+        ai_analyzed_at: new Date().toISOString(),
+      })
+      .eq("id", incidentId);
+    if (update.error) throw update.error;
+    const incident = await this.getIncident(incidentId);
+    if (!incident) throw new Error("Analysis was saved but the incident could not be reloaded.");
+    return incident;
+  }
+
+  async listContacts(): Promise<Contact[]> {
+    const result = await this.client.from("contacts").select("id, name, email, role").order("name");
+    if (result.error) throw result.error;
+    return (result.data ?? []).map(mapContact);
+  }
+
+  async addContact(input: { name: string; email: string; role?: string | null }): Promise<Contact> {
+    const result = await this.client
+      .from("contacts")
+      .insert({ name: input.name.trim(), email: input.email.trim().toLowerCase(), role: input.role?.trim() || null })
+      .select("id, name, email, role")
+      .single();
+    if (result.error) throw result.error;
+    return mapContact(result.data);
+  }
+
+  async removeContact(id: string): Promise<void> {
+    const result = await this.client.from("contacts").delete().eq("id", id);
+    if (result.error) throw result.error;
   }
 
   async trackIncident(code: string): Promise<TrackedIncident | null> {

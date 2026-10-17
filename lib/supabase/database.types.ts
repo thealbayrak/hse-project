@@ -87,6 +87,9 @@ export interface Database {
           ai_confidence: number | null;
           tracking_code: string | null;
           public_note: string | null;
+          ai_analysis: Json | null;
+          ai_analysis_language: string | null;
+          ai_analyzed_at: string | null;
           created_at: string;
           updated_at: string | null;
         };
@@ -112,10 +115,63 @@ export interface Database {
           ai_confidence?: number | null;
           tracking_code?: string | null;
           public_note?: string | null;
+          ai_analysis?: Json | null;
+          ai_analysis_language?: string | null;
+          ai_analyzed_at?: string | null;
           created_at?: string;
           updated_at?: string | null;
         };
         Update: Partial<Database["public"]["Tables"]["incidents"]["Insert"]>;
+        Relationships: [];
+      };
+      contacts: {
+        Row: {
+          id: string;
+          organization_id: string | null;
+          name: string;
+          email: string;
+          role: string | null;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          organization_id?: string | null;
+          name: string;
+          email: string;
+          role?: string | null;
+          created_at?: string;
+        };
+        Update: Partial<Database["public"]["Tables"]["contacts"]["Insert"]>;
+        Relationships: [];
+      };
+      meetings: {
+        Row: {
+          id: string;
+          incident_id: string | null;
+          title: string;
+          scheduled_at: string;
+          duration_minutes: number;
+          location: string | null;
+          note: string | null;
+          recipients: Json;
+          created_by: string | null;
+          email_id: string | null;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          incident_id?: string | null;
+          title: string;
+          scheduled_at: string;
+          duration_minutes?: number;
+          location?: string | null;
+          note?: string | null;
+          recipients?: Json;
+          created_by?: string | null;
+          email_id?: string | null;
+          created_at?: string;
+        };
+        Update: Partial<Database["public"]["Tables"]["meetings"]["Insert"]>;
         Relationships: [];
       };
       incident_attachments: {

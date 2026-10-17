@@ -1,10 +1,33 @@
 import type { ReportAnalysis } from "@/lib/ai/provider";
 import type { Locale } from "@/lib/i18n/translations";
+import type { Incident, IncidentAnalysis, Site } from "@/lib/types";
+
+/** Officer-side: analyse an incident the user is looking at. */
+export async function analyzeIncident(incident: Incident, language: Locale): Promise<IncidentAnalysis> {
+  const response = await fetch("/api/ai/analyze-incident", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ incident, language }),
+  });
+  const body = (await response.json().catch(() => null)) as { ok?: boolean; analysis?: IncidentAnalysis; error?: string } | null;
+  if (!response.ok || !body?.ok || !body.analysis) {
+    throw new Error(body?.error || `Analysis failed (${response.status}).`);
+  }
+  return body.analysis;
+}
 
 /** Browser-side call to the analysis route. Throws on failure; callers fall back to manual entry. */
-export async function analyzeReport(input: { audio?: Blob | null; text?: string; locale: Locale }): Promise<ReportAnalysis> {
+export async function analyzeReport(input: {
+  audio?: Blob | null;
+  text?: string;
+  locale: Locale;
+  sites?: Pick<Site, "id" | "name" | "locations">[];
+}): Promise<ReportAnalysis> {
   const form = new FormData();
   form.set("locale", input.locale);
+  if (input.sites?.length) {
+    form.set("sites", JSON.stringify(input.sites.map((site) => ({ id: site.id, name: site.name, locations: site.locations }))));
+  }
   if (input.audio && input.audio.size > 0) {
     const ext = input.audio.type.includes("mp4") ? "m4a" : input.audio.type.includes("ogg") ? "ogg" : "webm";
     form.set("audio", input.audio, `voice.${ext}`);

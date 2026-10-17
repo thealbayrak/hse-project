@@ -59,6 +59,10 @@ export interface Incident {
   trackingCode?: string | null;
   /** Officer's note that the reporter can read on /track. */
   publicNote?: string | null;
+  /** Assistant analysis for the safety officer (root causes, actions, AML advice). */
+  aiAnalysis?: IncidentAnalysis | null;
+  aiAnalysisLanguage?: string | null;
+  aiAnalyzedAt?: string | null;
   anonymous: boolean;
   reporterName: string | null;
   status: IncidentStatus;
@@ -198,4 +202,34 @@ export interface CreateSafetyWalkInput {
   skyddsombudName: string;
   skyddsombudRole: string;
   items: CreateSafetyWalkItemInput[];
+}
+
+/** Officer-side assistant output, stored on the incident. */
+export interface IncidentAnalysis {
+  summary: string;
+  rootCauses: string[];
+  immediateActions: string[];
+  preventiveActions: string[];
+  amlReportRequired: boolean;
+  amlReason: string;
+  riskLevel: Severity;
+  meetingRecommended: boolean;
+  meetingAgenda: string[];
+}
+
+export interface Contact {
+  id: string;
+  name: string;
+  email: string;
+  role: string | null;
+}
+
+export interface MeetingInviteInput {
+  incidentId: string;
+  title: string;
+  scheduledAt: string;
+  durationMinutes: number;
+  location: string;
+  note: string;
+  recipients: { name: string; email: string }[];
 }

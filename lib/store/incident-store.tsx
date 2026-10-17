@@ -34,10 +34,13 @@ import {
 import { toSafetyWalkSummary } from "@/lib/supabase/mappers";
 import { isSupabaseConfigured } from "@/lib/supabase/env";
 import type {
+  Contact,
   CreateIncidentInput,
   CreateSafetyWalkInput,
   DashboardMetrics,
   Incident,
+  IncidentAnalysis,
+  IncidentStatus,
   SafetyWalk,
   SafetyWalkSummary,
   Site,
@@ -62,6 +65,11 @@ interface IncidentStoreValue {
   updateCapa: (incidentId: string, capa: UpdateCapaInput) => Promise<Incident>;
   createSafetyWalk: (input: CreateSafetyWalkInput) => Promise<SafetyWalk>;
   trackIncident: (code: string) => Promise<TrackedIncident | null>;
+  updateStatus: (incidentId: string, status: IncidentStatus) => Promise<Incident>;
+  saveIncidentAnalysis: (incidentId: string, analysis: IncidentAnalysis, language: string) => Promise<Incident>;
+  listContacts: () => Promise<Contact[]>;
+  addContact: (input: { name: string; email: string; role?: string | null }) => Promise<Contact>;
+  removeContact: (id: string) => Promise<void>;
   refresh: () => Promise<void>;
   syncQueuedReports: () => Promise<void>;
 }
@@ -288,6 +296,38 @@ export function IncidentProvider({ children }: { children: React.ReactNode }) {
 
   const trackIncident = useCallback((code: string) => repository.trackIncident(code), [repository]);
 
+  const updateStatus = useCallback(
+    async (incidentId: string, status: IncidentStatus) => {
+      // Optimistic move so the board feels instant; the refresh below reconciles.
+      setIncidents((current) => current.map((item) => (item.id === incidentId ? { ...item, status } : item)));
+      try {
+        const updated = await repository.updateStatus(incidentId, status);
+        setIncidents((current) => current.map((item) => (item.id === incidentId ? updated : item)));
+        return updated;
+      } catch (caught) {
+        await refresh().catch(() => undefined);
+        throw caught;
+      }
+    },
+    [refresh, repository]
+  );
+
+  const saveIncidentAnalysis = useCallback(
+    async (incidentId: string, analysis: IncidentAnalysis, language: string) => {
+      const updated = await repository.saveIncidentAnalysis(incidentId, analysis, language);
+      setIncidents((current) => current.map((item) => (item.id === incidentId ? updated : item)));
+      return updated;
+    },
+    [repository]
+  );
+
+  const listContacts = useCallback(() => repository.listContacts(), [repository]);
+  const addContact = useCallback(
+    (input: { name: string; email: string; role?: string | null }) => repository.addContact(input),
+    [repository]
+  );
+  const removeContact = useCallback((id: string) => repository.removeContact(id), [repository]);
+
   const value = useMemo(
     () => ({
       incidents,
@@ -304,6 +344,11 @@ export function IncidentProvider({ children }: { children: React.ReactNode }) {
       updateCapa,
       createSafetyWalk,
       trackIncident,
+      updateStatus,
+      saveIncidentAnalysis,
+      listContacts,
+      addContact,
+      removeContact,
       refresh,
       syncQueuedReports,
     }),
@@ -321,6 +366,11 @@ export function IncidentProvider({ children }: { children: React.ReactNode }) {
       updateCapa,
       createSafetyWalk,
       trackIncident,
+      updateStatus,
+      saveIncidentAnalysis,
+      listContacts,
+      addContact,
+      removeContact,
       refresh,
       syncQueuedReports,
     ]
