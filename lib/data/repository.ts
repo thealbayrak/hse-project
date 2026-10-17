@@ -2,15 +2,21 @@ import type {
   Contact,
   CreateIncidentInput,
   CreateSafetyWalkInput,
+  CreateTaskInput,
   DashboardMetrics,
   Incident,
   IncidentAnalysis,
   IncidentStatus,
+  Profile,
+  ProfileImportRow,
   SafetyWalk,
   SafetyWalkSummary,
   Site,
+  SitePerson,
+  Task,
   TrackedIncident,
   UpdateCapaInput,
+  UpdateTaskInput,
 } from "@/lib/types";
 
 export interface RealtimeIncidentEvent {
@@ -19,6 +25,12 @@ export interface RealtimeIncidentEvent {
 }
 
 export type RealtimeIncidentHandler = (event: RealtimeIncidentEvent) => void;
+
+export interface ImportResult {
+  created: number;
+  updated: number;
+  skipped: { row: number; reason: string }[];
+}
 
 /**
  * Persistence-agnostic contract.
@@ -41,5 +53,21 @@ export interface IncidentRepository {
   listContacts(): Promise<Contact[]>;
   addContact(input: { name: string; email: string; role?: string | null }): Promise<Contact>;
   removeContact(id: string): Promise<void>;
+
+  // People and roles
+  /** Names only, for the worker picking themselves on the report form; no login needed. */
+  listSitePeople(siteId: string): Promise<SitePerson[]>;
+  listProfiles(): Promise<Profile[]>;
+  /** The signed-in person's profile, matched by e-mail; null when not in the people list. */
+  getProfileByEmail(email: string): Promise<Profile | null>;
+  importProfiles(rows: ProfileImportRow[]): Promise<ImportResult>;
+  updateProfile(id: string, patch: Partial<Omit<Profile, "id">>): Promise<Profile>;
+  removeProfile(id: string): Promise<void>;
+
+  // Tasks
+  listTasks(): Promise<Task[]>;
+  createTask(input: CreateTaskInput, createdById: string | null): Promise<Task>;
+  updateTask(id: string, patch: UpdateTaskInput): Promise<Task>;
+
   subscribeToIncidents?(handler: RealtimeIncidentHandler): () => void;
 }

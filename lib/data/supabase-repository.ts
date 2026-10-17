@@ -1,5 +1,5 @@
 import { computeMetrics } from "@/lib/data/metrics";
-import type { IncidentRepository, RealtimeIncidentHandler } from "@/lib/data/repository";
+import type { ImportResult, IncidentRepository, RealtimeIncidentHandler } from "@/lib/data/repository";
 import { createBrowserSupabaseClient } from "@/lib/supabase/client";
 import { audioExtension, sanitizeFileName } from "@/lib/media";
 import { addBusinessDaysIsoDate } from "@/lib/skyddsrond/business-days";
@@ -9,28 +9,40 @@ import {
   isSkyddsrondIncident,
   mapContact,
   mapIncident,
+  mapProfile,
+  mapRole,
   mapSafetyWalk,
   mapSite,
+  mapTask,
   mapTracked,
   toSafetyWalkSummary,
   walkMediaPaths,
   type IncidentQueryRow,
   type MediaUrlResolver,
+  type ProfileQueryRow,
   type SafetyWalkQueryRow,
   type SiteQueryRow,
+  type TaskQueryRow,
 } from "@/lib/supabase/mappers";
 import type {
   Contact,
   CreateIncidentInput,
   CreateSafetyWalkInput,
+  CreateTaskInput,
   Incident,
   IncidentAnalysis,
   IncidentStatus,
+  Profile,
+  ProfileImportRow,
+  Role,
   SafetyWalk,
   SafetyWalkSummary,
   Site,
+  SitePerson,
+  Task,
   TrackedIncident,
   UpdateCapaInput,
+  UpdateTaskInput,
 } from "@/lib/types";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
@@ -51,6 +63,11 @@ const INCIDENT_SELECT = `
 `;
 
 const WALK_SELECT = "*, sites ( id, name ), safety_walk_items ( * )";
+
+const PROFILE_SELECT = "*, sites ( id, name ), manager:profiles!profiles_reports_to_fkey ( id, full_name )";
+
+const TASK_SELECT =
+  "*, assignee:profiles!tasks_assignee_id_fkey ( id, full_name ), creator:profiles!tasks_created_by_fkey ( id, full_name ), incidents ( id, reference )";
 
 type Client = SupabaseClient<Database>;
 
@@ -108,6 +125,9 @@ export class SupabaseIncidentRepository implements IncidentRepository {
       p_original_text: input.originalText ?? null,
       p_summary_sv: input.summarySv ?? null,
       p_ai_confidence: input.aiConfidence ?? null,
+      p_reporter_profile_id: input.anonymous ? null : (input.reporterProfileId ?? null),
+      p_latitude: input.latitude ?? null,
+      p_longitude: input.longitude ?? null,
     });
     if (rpc.error) throw rpc.error;
 
@@ -313,6 +333,164 @@ export class SupabaseIncidentRepository implements IncidentRepository {
   async removeContact(id: string): Promise<void> {
     const result = await this.client.from("contacts").delete().eq("id", id);
     if (result.error) throw result.error;
+  }
+
+  // --- People -------------------------------------------------------------
+
+  async listSitePeople(siteId: string): Promise<SitePerson[]> {
+    const result = await this.client.rpc("list_site_people", { p_site_id: siteId });
+    if (result.error) throw result.error;
+    return (result.data ?? []).map((row) => ({
+      id: row.id,
+      fullName: row.full_name,
+      role: mapRole(row.role),
+      employeeNo: row.employee_no,
+    }));
+  }
+
+  async listProfiles(): Promise<Profile[]> {
+    const result = await this.client.from("profiles").select(PROFILE_SELECT).order("full_name");
+    if (result.error) throw result.error;
+    return ((result.data ?? []) as unknown as ProfileQueryRow[]).map(mapProfile);
+  }
+
+  async getProfileByEmail(email: string): Promise<Profile | null> {
+    const result = await this.client.from("profiles").select(PROFILE_SELECT).ilike("email", email.trim()).limit(1).maybeSingle();
+    if (result.error) throw result.error;
+    return result.data ? mapProfile(result.data as unknown as ProfileQueryRow) : null;
+  }
+
+  async importProfiles(rows: ProfileImportRow[]): Promise<ImportResult> {
+    const sites = await this.listSites();
+    const existing = await this.listProfiles();
+    const byEmail = new Map(existing.filter((p) => p.email).map((p) => [p.email!.toLowerCase(), p]));
+    const byEmployeeNo = new Map(existing.filter((p) => p.employeeNo).map((p) => [p.employeeNo!, p]));
+    const byName = new Map(existing.map((p) => [p.fullName.toLowerCase(), p]));
+    const result: ImportResult = { created: 0, updated: 0, skipped: [] };
+
+    // First pass: people. Second pass: who reports to whom (managers may appear later in the file).
+    const savedIds = new Map<number, string>();
+    for (const [index, row] of rows.entries()) {
+      const name = row.fullName?.trim();
+      if (!name) {
+        result.skipped.push({ row: index + 1, reason: "missing name" });
+        continue;
+      }
+      const email = row.email?.trim().toLowerCase() || null;
+      const site = row.siteName ? sites.find((s) => s.name.toLowerCase() === row.siteName!.trim().toLowerCase()) : undefined;
+      if (row.siteName && !site) {
+        result.skipped.push({ row: index + 1, reason: `unknown site "${row.siteName}"` });
+        continue;
+      }
+      const match =
+        (email && byEmail.get(email)) || (row.employeeNo && byEmployeeNo.get(row.employeeNo)) || byName.get(name.toLowerCase());
+      const payload = {
+        full_name: name,
+        email,
+        phone: row.phone?.trim() || null,
+        role: row.role ?? (match?.role as Role | undefined) ?? "worker",
+        site_id: site?.id ?? match?.siteId ?? null,
+        organization_id: site?.organizationId ?? null,
+        employee_no: row.employeeNo?.trim() || match?.employeeNo || null,
+        language: row.language?.trim().toLowerCase() || match?.language || null,
+        active: true,
+      };
+      const saved = match
+        ? await this.client.from("profiles").update(payload).eq("id", match.id).select("id").single()
+        : await this.client.from("profiles").insert(payload).select("id").single();
+      if (saved.error) {
+        result.skipped.push({ row: index + 1, reason: saved.error.message });
+        continue;
+      }
+      savedIds.set(index, saved.data.id);
+      if (match) result.updated += 1;
+      else result.created += 1;
+      const profile: Profile = { ...(match ?? { id: saved.data.id, fullName: name, email, phone: null, role: payload.role, siteId: payload.site_id, employeeNo: payload.employee_no, reportsTo: null, language: null, active: true }), id: saved.data.id, fullName: name, email, employeeNo: payload.employee_no };
+      if (email) byEmail.set(email, profile);
+      if (payload.employee_no) byEmployeeNo.set(payload.employee_no, profile);
+      byName.set(name.toLowerCase(), profile);
+    }
+
+    for (const [index, row] of rows.entries()) {
+      const id = savedIds.get(index);
+      if (!id) continue;
+      const managerEmail = row.reportsToEmail?.trim().toLowerCase();
+      const managerName = row.reportsToName?.trim().toLowerCase();
+      const manager = (managerEmail && byEmail.get(managerEmail)) || (managerName && byName.get(managerName)) || null;
+      if (!manager && !managerEmail && !managerName) continue;
+      if (!manager) {
+        result.skipped.push({ row: index + 1, reason: `manager not found (${row.reportsToEmail || row.reportsToName})` });
+        continue;
+      }
+      if (manager.id === id) continue;
+      const linked = await this.client.from("profiles").update({ reports_to: manager.id }).eq("id", id);
+      if (linked.error) result.skipped.push({ row: index + 1, reason: linked.error.message });
+    }
+
+    return result;
+  }
+
+  async updateProfile(id: string, patch: Partial<Omit<Profile, "id">>): Promise<Profile> {
+    const payload: Database["public"]["Tables"]["profiles"]["Update"] = {};
+    if (patch.fullName !== undefined) payload.full_name = patch.fullName;
+    if (patch.email !== undefined) payload.email = patch.email?.trim().toLowerCase() || null;
+    if (patch.phone !== undefined) payload.phone = patch.phone;
+    if (patch.role !== undefined) payload.role = patch.role;
+    if (patch.siteId !== undefined) payload.site_id = patch.siteId;
+    if (patch.employeeNo !== undefined) payload.employee_no = patch.employeeNo;
+    if (patch.reportsTo !== undefined) payload.reports_to = patch.reportsTo;
+    if (patch.language !== undefined) payload.language = patch.language;
+    if (patch.active !== undefined) payload.active = patch.active;
+    const result = await this.client.from("profiles").update(payload).eq("id", id).select(PROFILE_SELECT).single();
+    if (result.error) throw result.error;
+    return mapProfile(result.data as unknown as ProfileQueryRow);
+  }
+
+  async removeProfile(id: string): Promise<void> {
+    const result = await this.client.from("profiles").delete().eq("id", id);
+    if (result.error) throw result.error;
+  }
+
+  // --- Tasks --------------------------------------------------------------
+
+  async listTasks(): Promise<Task[]> {
+    const result = await this.client.from("tasks").select(TASK_SELECT).order("created_at", { ascending: false });
+    if (result.error) throw result.error;
+    return ((result.data ?? []) as unknown as TaskQueryRow[]).map(mapTask);
+  }
+
+  async createTask(input: CreateTaskInput, createdById: string | null): Promise<Task> {
+    const result = await this.client
+      .from("tasks")
+      .insert({
+        title: input.title.trim(),
+        description: input.description.trim() || null,
+        priority: input.priority,
+        assignee_id: input.assigneeId,
+        site_id: input.siteId,
+        incident_id: input.incidentId,
+        due_date: input.dueDate,
+        created_by: createdById,
+      })
+      .select(TASK_SELECT)
+      .single();
+    if (result.error) throw result.error;
+    return mapTask(result.data as unknown as TaskQueryRow);
+  }
+
+  async updateTask(id: string, patch: UpdateTaskInput): Promise<Task> {
+    const payload: Database["public"]["Tables"]["tasks"]["Update"] = {};
+    if (patch.status !== undefined) {
+      payload.status = patch.status;
+      payload.completed_at = patch.status === "done" ? new Date().toISOString() : null;
+    }
+    if (patch.feedback !== undefined) payload.feedback = patch.feedback.trim() || null;
+    if (patch.assigneeId !== undefined) payload.assignee_id = patch.assigneeId;
+    if (patch.dueDate !== undefined) payload.due_date = patch.dueDate;
+    if (patch.priority !== undefined) payload.priority = patch.priority;
+    const result = await this.client.from("tasks").update(payload).eq("id", id).select(TASK_SELECT).single();
+    if (result.error) throw result.error;
+    return mapTask(result.data as unknown as TaskQueryRow);
   }
 
   async trackIncident(code: string): Promise<TrackedIncident | null> {

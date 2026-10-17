@@ -41,6 +41,9 @@ const baseIncident: IncidentQueryRow = {
   ai_analysis: null,
   ai_analysis_language: null,
   ai_analyzed_at: null,
+  reporter_profile_id: null,
+  latitude: null,
+  longitude: null,
   created_at: "2026-09-08T07:40:00.000Z",
   updated_at: null,
   sites: { id: "site-1", name: "Torslanda", city: "Gothenburg" },
@@ -155,10 +158,12 @@ describe("mapSite", () => {
     city: null,
     address: null,
     created_at: "",
+    latitude: null,
+    longitude: null,
     organizations: { id: "org-1", name: "Volvo", organization_number: "556074-3089", address: "Torslandavägen" },
     site_locations: [
-      { id: "b", name: "Second", sort_order: 1 },
-      { id: "a", name: "First", sort_order: 0 },
+      { id: "b", name: "Second", sort_order: 1, latitude: null, longitude: null },
+      { id: "a", name: "First", sort_order: 0, latitude: 57.72, longitude: 11.95 },
     ],
   };
 

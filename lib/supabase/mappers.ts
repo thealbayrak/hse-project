@@ -4,9 +4,11 @@ import type {
   IncidentRow,
   LocationRow,
   OrganizationRow,
+  ProfileRow,
   SafetyWalkItemRow,
   SafetyWalkRow,
   SiteRow,
+  TaskRow,
 } from "@/lib/supabase/database.types";
 import type {
   CapaAction,
@@ -14,6 +16,11 @@ import type {
   Incident,
   IncidentAnalysis,
   IncidentStatus,
+  Profile,
+  Role,
+  Task,
+  TaskPriority,
+  TaskStatus,
   IncidentType,
   RiskCategory,
   SafetyWalk,
@@ -37,7 +44,18 @@ export interface IncidentQueryRow extends IncidentRow {
 
 export interface SiteQueryRow extends SiteRow {
   organizations?: Nested<Pick<OrganizationRow, "id" | "name" | "organization_number" | "address">>;
-  site_locations?: Nested<Pick<LocationRow, "id" | "name" | "sort_order">>;
+  site_locations?: Nested<Pick<LocationRow, "id" | "name" | "sort_order" | "latitude" | "longitude">>;
+}
+
+export interface ProfileQueryRow extends ProfileRow {
+  sites?: Nested<Pick<SiteRow, "id" | "name">>;
+  manager?: Nested<Pick<ProfileRow, "id" | "full_name">>;
+}
+
+export interface TaskQueryRow extends TaskRow {
+  assignee?: Nested<Pick<ProfileRow, "id" | "full_name">>;
+  creator?: Nested<Pick<ProfileRow, "id" | "full_name">>;
+  incidents?: Nested<Pick<IncidentRow, "id" | "reference">>;
 }
 
 export interface SafetyWalkQueryRow extends SafetyWalkRow {
@@ -146,6 +164,9 @@ export function mapIncident(row: IncidentQueryRow, mediaUrl: MediaUrlResolver = 
     aiAnalysis: parseAnalysis(row.ai_analysis),
     aiAnalysisLanguage: row.ai_analysis_language ?? null,
     aiAnalyzedAt: row.ai_analyzed_at ?? null,
+    reporterProfileId: row.reporter_profile_id ?? null,
+    latitude: row.latitude ?? null,
+    longitude: row.longitude ?? null,
     anonymous: Boolean(row.is_anonymous),
     reporterName: row.reporter_name,
     status: mapStatus(row.status),
@@ -164,7 +185,7 @@ export function mapSite(row: SiteQueryRow): Site {
   const org = unwrapOne(row.organizations);
   const locations = [...unwrapMany(row.site_locations)]
     .sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0))
-    .map((item) => ({ id: item.id, name: item.name }));
+    .map((item) => ({ id: item.id, name: item.name, latitude: item.latitude ?? null, longitude: item.longitude ?? null }));
 
   return {
     id: row.id,
@@ -174,7 +195,76 @@ export function mapSite(row: SiteQueryRow): Site {
     organizationId: row.organization_id || org?.id || undefined,
     organizationNumber: org?.organization_number || undefined,
     organizationName: org?.name,
+    latitude: row.latitude ?? null,
+    longitude: row.longitude ?? null,
     locations: locations.length ? locations : [{ id: row.id, name: row.name }],
+  };
+}
+
+export function mapRole(value: string): Role {
+  const normalized = value.trim().toLowerCase().replaceAll("-", "_").replaceAll(" ", "_");
+  if (normalized === "foreman" || normalized === "supervisor" || normalized === "arbetsledare" || normalized === "şef" || normalized === "sef") return "foreman";
+  if (normalized === "safety_officer" || normalized === "skyddsombud" || normalized === "officer" || normalized === "isg_uzmani" || normalized === "isg_uzmanı") return "safety_officer";
+  if (normalized === "hse_manager" || normalized === "manager" || normalized === "arbetsmiljöchef" || normalized === "isg_muduru" || normalized === "isg_müdürü") return "hse_manager";
+  if (normalized === "admin" || normalized === "administrator") return "admin";
+  return "worker";
+}
+
+export function mapProfile(row: ProfileQueryRow): Profile {
+  const site = unwrapOne(row.sites);
+  const manager = unwrapOne(row.manager);
+  return {
+    id: row.id,
+    fullName: row.full_name,
+    email: row.email,
+    phone: row.phone,
+    role: mapRole(row.role),
+    siteId: row.site_id,
+    siteName: site?.name ?? null,
+    employeeNo: row.employee_no,
+    reportsTo: row.reports_to,
+    reportsToName: manager?.full_name ?? null,
+    language: row.language,
+    active: row.active,
+  };
+}
+
+export function mapTaskStatus(value: string): TaskStatus {
+  const normalized = value.trim().toLowerCase().replaceAll("_", "-");
+  if (normalized === "in-progress") return "in-progress";
+  if (normalized === "done" || normalized === "completed") return "done";
+  if (normalized === "cancelled" || normalized === "canceled") return "cancelled";
+  return "open";
+}
+
+export function mapTaskPriority(value: string): TaskPriority {
+  const normalized = value.trim().toLowerCase();
+  if (normalized === "low" || normalized === "high" || normalized === "urgent") return normalized;
+  return "normal";
+}
+
+export function mapTask(row: TaskQueryRow): Task {
+  const assignee = unwrapOne(row.assignee);
+  const creator = unwrapOne(row.creator);
+  const incident = unwrapOne(row.incidents);
+  return {
+    id: row.id,
+    title: row.title,
+    description: row.description ?? "",
+    priority: mapTaskPriority(row.priority),
+    status: mapTaskStatus(row.status),
+    assigneeId: row.assignee_id,
+    assigneeName: assignee?.full_name ?? null,
+    createdById: row.created_by,
+    createdByName: creator?.full_name ?? null,
+    siteId: row.site_id,
+    incidentId: row.incident_id,
+    incidentReference: incident?.reference ?? null,
+    dueDate: row.due_date,
+    feedback: row.feedback ?? "",
+    completedAt: row.completed_at,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
   };
 }
 

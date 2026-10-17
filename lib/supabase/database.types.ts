@@ -35,6 +35,8 @@ export interface Database {
           name: string;
           city: string | null;
           address: string | null;
+          latitude: number | null;
+          longitude: number | null;
           created_at: string;
         };
         Insert: {
@@ -43,6 +45,8 @@ export interface Database {
           name: string;
           city?: string | null;
           address?: string | null;
+          latitude?: number | null;
+          longitude?: number | null;
           created_at?: string;
         };
         Update: Partial<Database["public"]["Tables"]["sites"]["Insert"]>;
@@ -54,12 +58,16 @@ export interface Database {
           site_id: string;
           name: string;
           sort_order: number;
+          latitude: number | null;
+          longitude: number | null;
         };
         Insert: {
           id?: string;
           site_id: string;
           name: string;
           sort_order?: number;
+          latitude?: number | null;
+          longitude?: number | null;
         };
         Update: Partial<Database["public"]["Tables"]["site_locations"]["Insert"]>;
         Relationships: [];
@@ -90,6 +98,9 @@ export interface Database {
           ai_analysis: Json | null;
           ai_analysis_language: string | null;
           ai_analyzed_at: string | null;
+          reporter_profile_id: string | null;
+          latitude: number | null;
+          longitude: number | null;
           created_at: string;
           updated_at: string | null;
         };
@@ -118,10 +129,111 @@ export interface Database {
           ai_analysis?: Json | null;
           ai_analysis_language?: string | null;
           ai_analyzed_at?: string | null;
+          reporter_profile_id?: string | null;
+          latitude?: number | null;
+          longitude?: number | null;
           created_at?: string;
           updated_at?: string | null;
         };
         Update: Partial<Database["public"]["Tables"]["incidents"]["Insert"]>;
+        Relationships: [];
+      };
+      profiles: {
+        Row: {
+          id: string;
+          organization_id: string | null;
+          site_id: string | null;
+          employee_no: string | null;
+          full_name: string;
+          email: string | null;
+          phone: string | null;
+          role: string;
+          reports_to: string | null;
+          language: string | null;
+          active: boolean;
+          auth_user_id: string | null;
+          created_at: string;
+          updated_at: string | null;
+        };
+        Insert: {
+          id?: string;
+          organization_id?: string | null;
+          site_id?: string | null;
+          employee_no?: string | null;
+          full_name: string;
+          email?: string | null;
+          phone?: string | null;
+          role?: string;
+          reports_to?: string | null;
+          language?: string | null;
+          active?: boolean;
+          auth_user_id?: string | null;
+          created_at?: string;
+          updated_at?: string | null;
+        };
+        Update: Partial<Database["public"]["Tables"]["profiles"]["Insert"]>;
+        Relationships: [];
+      };
+      tasks: {
+        Row: {
+          id: string;
+          organization_id: string | null;
+          site_id: string | null;
+          incident_id: string | null;
+          title: string;
+          description: string | null;
+          priority: string;
+          status: string;
+          assignee_id: string | null;
+          created_by: string | null;
+          due_date: string | null;
+          feedback: string | null;
+          completed_at: string | null;
+          created_at: string;
+          updated_at: string | null;
+        };
+        Insert: {
+          id?: string;
+          organization_id?: string | null;
+          site_id?: string | null;
+          incident_id?: string | null;
+          title: string;
+          description?: string | null;
+          priority?: string;
+          status?: string;
+          assignee_id?: string | null;
+          created_by?: string | null;
+          due_date?: string | null;
+          feedback?: string | null;
+          completed_at?: string | null;
+          created_at?: string;
+          updated_at?: string | null;
+        };
+        Update: Partial<Database["public"]["Tables"]["tasks"]["Insert"]>;
+        Relationships: [];
+      };
+      notifications: {
+        Row: {
+          id: string;
+          incident_id: string | null;
+          recipient_profile_id: string | null;
+          recipient_email: string;
+          reason: string;
+          channel: string;
+          email_id: string | null;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          incident_id?: string | null;
+          recipient_profile_id?: string | null;
+          recipient_email: string;
+          reason: string;
+          channel?: string;
+          email_id?: string | null;
+          created_at?: string;
+        };
+        Update: Partial<Database["public"]["Tables"]["notifications"]["Insert"]>;
         Relationships: [];
       };
       contacts: {
@@ -299,8 +411,41 @@ export interface Database {
           p_original_text?: string | null;
           p_summary_sv?: string | null;
           p_ai_confidence?: number | null;
+          p_reporter_profile_id?: string | null;
+          p_latitude?: number | null;
+          p_longitude?: number | null;
         };
         Returns: { id: string; reference: string; created_at: string; tracking_code: string | null }[];
+      };
+      list_site_people: {
+        Args: { p_site_id: string };
+        Returns: { id: string; full_name: string; role: string; employee_no: string | null }[];
+      };
+      incident_recipients: {
+        Args: { p_incident_id: string };
+        Returns: { profile_id: string; full_name: string; email: string; role: string; reason: string }[];
+      };
+      log_notification: {
+        Args: { p_incident_id: string; p_profile_id: string | null; p_email: string; p_reason: string; p_email_id?: string | null };
+        Returns: boolean;
+      };
+      incident_for_notification: {
+        Args: { p_incident_id: string };
+        Returns: {
+          id: string;
+          reference: string;
+          type: string;
+          category: string;
+          severity: string;
+          description: string;
+          summary_sv: string | null;
+          site_name: string;
+          location_name: string;
+          created_at: string;
+          reporter_name: string | null;
+          is_anonymous: boolean;
+          tracking_code: string | null;
+        }[];
       };
       track_incident: {
         Args: { p_code: string };
@@ -344,3 +489,5 @@ export type LocationRow = Database["public"]["Tables"]["site_locations"]["Row"];
 export type SafetyWalkRow = Database["public"]["Tables"]["safety_walks"]["Row"];
 export type SafetyWalkItemRow = Database["public"]["Tables"]["safety_walk_items"]["Row"];
 export type ClaimedAlertRow = Database["public"]["Functions"]["claim_incident_alert"]["Returns"][number];
+export type ProfileRow = Database["public"]["Tables"]["profiles"]["Row"];
+export type TaskRow = Database["public"]["Tables"]["tasks"]["Row"];

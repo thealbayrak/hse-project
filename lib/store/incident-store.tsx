@@ -12,9 +12,10 @@ import {
 import { toast } from "sonner";
 import { dispatchCriticalIncidentAlert } from "@/lib/alerts/critical-incident";
 import { useAuth } from "@/lib/auth/auth-context";
+import { DEFAULT_SIGNED_IN_ROLE } from "@/lib/auth/permissions";
 import { createIncidentRepository } from "@/lib/data/factory";
 import { computeMetrics, sortIncidents } from "@/lib/data/metrics";
-import type { IncidentRepository } from "@/lib/data/repository";
+import type { ImportResult, IncidentRepository } from "@/lib/data/repository";
 import { SEED_INCIDENTS } from "@/lib/data/seed-incidents";
 import { SEED_SAFETY_WALKS } from "@/lib/data/seed-walks";
 import { SITES } from "@/lib/data/sites";
@@ -37,11 +38,18 @@ import type {
   Contact,
   CreateIncidentInput,
   CreateSafetyWalkInput,
+  CreateTaskInput,
   DashboardMetrics,
   Incident,
   IncidentAnalysis,
   IncidentStatus,
+  Profile,
+  ProfileImportRow,
+  Role,
   SafetyWalk,
+  SitePerson,
+  Task,
+  UpdateTaskInput,
   SafetyWalkSummary,
   Site,
   TrackedIncident,
@@ -65,6 +73,18 @@ interface IncidentStoreValue {
   updateCapa: (incidentId: string, capa: UpdateCapaInput) => Promise<Incident>;
   createSafetyWalk: (input: CreateSafetyWalkInput) => Promise<SafetyWalk>;
   trackIncident: (code: string) => Promise<TrackedIncident | null>;
+  /** Profile of the signed-in person (undefined while resolving, null when not in the people list). */
+  profile: Profile | null | undefined;
+  /** Effective role: from the profile, the default for signed-in users without one, hse_manager in demo mode, null when signed out. */
+  role: Role | null;
+  listSitePeople: (siteId: string) => Promise<SitePerson[]>;
+  listProfiles: () => Promise<Profile[]>;
+  importProfiles: (rows: ProfileImportRow[]) => Promise<ImportResult>;
+  updateProfile: (id: string, patch: Partial<Omit<Profile, "id">>) => Promise<Profile>;
+  removeProfile: (id: string) => Promise<void>;
+  listTasks: () => Promise<Task[]>;
+  createTask: (input: CreateTaskInput) => Promise<Task>;
+  updateTask: (id: string, patch: UpdateTaskInput) => Promise<Task>;
   updateStatus: (incidentId: string, status: IncidentStatus) => Promise<Incident>;
   saveIncidentAnalysis: (incidentId: string, analysis: IncidentAnalysis, language: string) => Promise<Incident>;
   listContacts: () => Promise<Contact[]>;
@@ -110,6 +130,46 @@ export function IncidentProvider({ children }: { children: React.ReactNode }) {
   const [highlightedIds, setHighlightedIds] = useState<string[]>([]);
   const [pendingCount, setPendingCount] = useState(0);
   const syncingRef = useRef(false);
+
+  // The signed-in person's profile (matched by e-mail) decides their role.
+  // Demo mode has no session: act as an HSE manager so every screen is reachable.
+  const [profile, setProfile] = useState<Profile | null | undefined>(usingSupabase ? undefined : null);
+  const [signedInEmail, setSignedInEmail] = useState<string | null>(null);
+  const sessionEmail = session?.user.email ?? null;
+  useEffect(() => {
+    if (!usingSupabase) return;
+    if (!sessionEmail) {
+      // Signed out: no profile. (State update happens in the promise callback below.)
+      Promise.resolve().then(() => {
+        setProfile(null);
+        setSignedInEmail(null);
+      });
+      return;
+    }
+    let cancelled = false;
+    repository
+      .getProfileByEmail(sessionEmail)
+      .then((found) => {
+        if (cancelled) return;
+        setProfile(found);
+        setSignedInEmail(sessionEmail);
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setProfile(null);
+          setSignedInEmail(sessionEmail);
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [repository, sessionEmail]);
+  const role: Role | null = !usingSupabase
+    ? "hse_manager"
+    : session
+      ? (profile?.role ?? DEFAULT_SIGNED_IN_ROLE)
+      : null;
+  void signedInEmail;
 
   // IndexedDB unavailable (private mode) means nothing can be queued either, so errors are ignored.
   const refreshPending = useCallback(
@@ -203,7 +263,7 @@ export function IncidentProvider({ children }: { children: React.ReactNode }) {
       for (const report of queued) {
         try {
           const created = await repository.createIncident(toCreateIncidentInput(report));
-          dispatchCriticalIncidentAlert(created);
+          dispatchCriticalIncidentAlert(created, locale);
           await removeQueuedReport(report.id);
           sent += 1;
         } catch (caught) {
@@ -237,7 +297,7 @@ export function IncidentProvider({ children }: { children: React.ReactNode }) {
       if (!offline) {
         try {
           const created = await repository.createIncident(input);
-          dispatchCriticalIncidentAlert(created);
+          dispatchCriticalIncidentAlert(created, locale);
           await refresh().catch(() => undefined);
           return created;
         } catch (caught) {
@@ -321,6 +381,22 @@ export function IncidentProvider({ children }: { children: React.ReactNode }) {
     [repository]
   );
 
+  // People, roles and tasks
+  const listSitePeople = useCallback((siteId: string) => repository.listSitePeople(siteId), [repository]);
+  const listProfiles = useCallback(() => repository.listProfiles(), [repository]);
+  const importProfiles = useCallback((rows: ProfileImportRow[]) => repository.importProfiles(rows), [repository]);
+  const updateProfile = useCallback(
+    (id: string, patch: Partial<Omit<Profile, "id">>) => repository.updateProfile(id, patch),
+    [repository]
+  );
+  const removeProfile = useCallback((id: string) => repository.removeProfile(id), [repository]);
+  const listTasks = useCallback(() => repository.listTasks(), [repository]);
+  const createTask = useCallback(
+    (input: CreateTaskInput) => repository.createTask(input, profile?.id ?? null),
+    [repository, profile]
+  );
+  const updateTask = useCallback((id: string, patch: UpdateTaskInput) => repository.updateTask(id, patch), [repository]);
+
   const listContacts = useCallback(() => repository.listContacts(), [repository]);
   const addContact = useCallback(
     (input: { name: string; email: string; role?: string | null }) => repository.addContact(input),
@@ -344,6 +420,16 @@ export function IncidentProvider({ children }: { children: React.ReactNode }) {
       updateCapa,
       createSafetyWalk,
       trackIncident,
+      profile,
+      role,
+      listSitePeople,
+      listProfiles,
+      importProfiles,
+      updateProfile,
+      removeProfile,
+      listTasks,
+      createTask,
+      updateTask,
       updateStatus,
       saveIncidentAnalysis,
       listContacts,
@@ -366,6 +452,16 @@ export function IncidentProvider({ children }: { children: React.ReactNode }) {
       updateCapa,
       createSafetyWalk,
       trackIncident,
+      profile,
+      role,
+      listSitePeople,
+      listProfiles,
+      importProfiles,
+      updateProfile,
+      removeProfile,
+      listTasks,
+      createTask,
+      updateTask,
       updateStatus,
       saveIncidentAnalysis,
       listContacts,

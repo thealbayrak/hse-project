@@ -13,6 +13,8 @@ export type RiskCategory =
 export interface SiteLocation {
   id: string;
   name: string;
+  latitude?: number | null;
+  longitude?: number | null;
 }
 
 export interface Site {
@@ -23,6 +25,8 @@ export interface Site {
   organizationId?: string;
   organizationNumber?: string;
   organizationName?: string;
+  latitude?: number | null;
+  longitude?: number | null;
   locations: SiteLocation[];
 }
 
@@ -63,6 +67,10 @@ export interface Incident {
   aiAnalysis?: IncidentAnalysis | null;
   aiAnalysisLanguage?: string | null;
   aiAnalyzedAt?: string | null;
+  /** The person who reported (from the people list), when not anonymous. */
+  reporterProfileId?: string | null;
+  latitude?: number | null;
+  longitude?: number | null;
   anonymous: boolean;
   reporterName: string | null;
   status: IncidentStatus;
@@ -89,6 +97,9 @@ export interface CreateIncidentInput {
   originalText?: string | null;
   summarySv?: string | null;
   aiConfidence?: number | null;
+  reporterProfileId?: string | null;
+  latitude?: number | null;
+  longitude?: number | null;
 }
 
 /** What a reporter sees on /track with their code. */
@@ -232,4 +243,96 @@ export interface MeetingInviteInput {
   location: string;
   note: string;
   recipients: { name: string; email: string }[];
+}
+
+/** Roles decide who is told about what and which screens a person sees. */
+export type Role = "worker" | "foreman" | "safety_officer" | "hse_manager" | "admin";
+
+export const ROLES: Role[] = ["worker", "foreman", "safety_officer", "hse_manager", "admin"];
+
+export interface Profile {
+  id: string;
+  fullName: string;
+  email: string | null;
+  phone: string | null;
+  role: Role;
+  siteId: string | null;
+  siteName?: string | null;
+  employeeNo: string | null;
+  reportsTo: string | null;
+  reportsToName?: string | null;
+  language: string | null;
+  active: boolean;
+}
+
+/** What the people import accepts per row (Excel / CSV). */
+export interface ProfileImportRow {
+  fullName: string;
+  email?: string | null;
+  phone?: string | null;
+  role?: Role | null;
+  siteName?: string | null;
+  employeeNo?: string | null;
+  reportsToEmail?: string | null;
+  reportsToName?: string | null;
+  language?: string | null;
+}
+
+/** Minimal person record shown to workers on the report form (no contact details). */
+export interface SitePerson {
+  id: string;
+  fullName: string;
+  role: Role;
+  employeeNo: string | null;
+}
+
+export type TaskStatus = "open" | "in-progress" | "done" | "cancelled";
+export type TaskPriority = "low" | "normal" | "high" | "urgent";
+
+export interface Task {
+  id: string;
+  title: string;
+  description: string;
+  priority: TaskPriority;
+  status: TaskStatus;
+  assigneeId: string | null;
+  assigneeName?: string | null;
+  createdById: string | null;
+  createdByName?: string | null;
+  siteId: string | null;
+  incidentId: string | null;
+  incidentReference?: string | null;
+  dueDate: string | null;
+  feedback: string;
+  completedAt: string | null;
+  createdAt: string;
+  updatedAt: string | null;
+}
+
+export interface CreateTaskInput {
+  title: string;
+  description: string;
+  priority: TaskPriority;
+  assigneeId: string | null;
+  siteId: string | null;
+  incidentId: string | null;
+  dueDate: string | null;
+}
+
+export interface UpdateTaskInput {
+  status?: TaskStatus;
+  feedback?: string;
+  assigneeId?: string | null;
+  dueDate?: string | null;
+  priority?: TaskPriority;
+}
+
+export interface NearbyPlace {
+  name: string;
+  kind: "hospital" | "pharmacy" | "clinic";
+  latitude: number;
+  longitude: number;
+  distanceKm: number;
+  phone: string | null;
+  address: string | null;
 }

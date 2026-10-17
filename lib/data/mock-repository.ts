@@ -4,7 +4,7 @@ import { SEED_INCIDENTS } from "@/lib/data/seed-incidents";
 import { SEED_SAFETY_WALKS } from "@/lib/data/seed-walks";
 import { findLocation, findSite, SITES } from "@/lib/data/sites";
 import { toSafetyWalkSummary } from "@/lib/supabase/mappers";
-import type { Contact, CreateIncidentInput, CreateSafetyWalkInput, Incident, SafetyWalk, UpdateCapaInput } from "@/lib/types";
+import type { Contact, CreateIncidentInput, CreateSafetyWalkInput, Incident, Profile, SafetyWalk, Task, UpdateCapaInput } from "@/lib/types";
 
 function withPlaceNames(incident: Incident): Incident {
   return {
@@ -59,6 +59,17 @@ export function createMockRepository(): IncidentRepository {
     { id: "contact-anna", name: "Anna Bergström", email: "anna.bergstrom@example.se", role: "HSE Manager" },
     { id: "contact-erik", name: "Erik Lindqvist", email: "erik.lindqvist@example.se", role: "Safety Officer" },
   ];
+  let profiles: Profile[] = [
+    { id: "p-anna", fullName: "Anna Bergström", email: "anna.bergstrom@example.se", phone: null, role: "hse_manager", siteId: null, siteName: null, employeeNo: "1001", reportsTo: null, reportsToName: null, language: "sv", active: true },
+    { id: "p-erik", fullName: "Erik Lindqvist", email: "erik.lindqvist@example.se", phone: null, role: "safety_officer", siteId: "site-kvillebacken", siteName: "Kvillebäcken Construction Site", employeeNo: "1002", reportsTo: "p-anna", reportsToName: "Anna Bergström", language: "sv", active: true },
+    { id: "p-johan", fullName: "Johan Ek", email: "johan.ek@example.se", phone: null, role: "foreman", siteId: "site-kvillebacken", siteName: "Kvillebäcken Construction Site", employeeNo: "2001", reportsTo: "p-erik", reportsToName: "Erik Lindqvist", language: "sv", active: true },
+    { id: "p-ali", fullName: "Ali Yılmaz", email: null, phone: null, role: "worker", siteId: "site-kvillebacken", siteName: "Kvillebäcken Construction Site", employeeNo: "3001", reportsTo: "p-johan", reportsToName: "Johan Ek", language: "tr", active: true },
+    { id: "p-piotr", fullName: "Piotr Nowak", email: null, phone: null, role: "worker", siteId: "site-kvillebacken", siteName: "Kvillebäcken Construction Site", employeeNo: "3002", reportsTo: "p-johan", reportsToName: "Johan Ek", language: "pl", active: true },
+  ];
+  let tasks: Task[] = [
+    { id: "task-1", title: "Zone 3 scaffold tag renewal", description: "Arrange re-inspection and new tag before Monday.", priority: "high", status: "open", assigneeId: "p-johan", assigneeName: "Johan Ek", createdById: "p-erik", createdByName: "Erik Lindqvist", siteId: "site-kvillebacken", incidentId: null, incidentReference: null, dueDate: "2026-10-20", feedback: "", completedAt: null, createdAt: "2026-10-15T08:00:00.000Z", updatedAt: null },
+  ];
+  const profileName = (id: string | null) => profiles.find((p) => p.id === id)?.fullName ?? null;
 
   return {
     async listSites() {
@@ -91,8 +102,11 @@ export function createMockRepository(): IncidentRepository {
         summarySv: input.summarySv ?? null,
         trackingCode: generateTrackingCode(),
         publicNote: null,
+        reporterProfileId: input.anonymous ? null : (input.reporterProfileId ?? null),
+        latitude: input.latitude ?? null,
+        longitude: input.longitude ?? null,
         anonymous: input.anonymous,
-        reporterName: input.anonymous ? null : input.reporterName,
+        reporterName: input.anonymous ? null : (profileName(input.reporterProfileId ?? null) ?? input.reporterName),
         status: "open",
         createdAt: new Date().toISOString(),
         capa: null,
@@ -170,6 +184,121 @@ export function createMockRepository(): IncidentRepository {
 
     async removeContact(id) {
       contacts = contacts.filter((contact) => contact.id !== id);
+    },
+
+    async listSitePeople(siteId) {
+      return profiles
+        .filter((p) => p.active && (p.siteId === siteId || p.siteId === null))
+        .map((p) => ({ id: p.id, fullName: p.fullName, role: p.role, employeeNo: p.employeeNo }));
+    },
+
+    async listProfiles() {
+      return structuredClone(profiles);
+    },
+
+    async getProfileByEmail(email) {
+      const found = profiles.find((p) => p.email?.toLowerCase() === email.trim().toLowerCase());
+      return found ? structuredClone(found) : null;
+    },
+
+    async importProfiles(rows) {
+      const result = { created: 0, updated: 0, skipped: [] as { row: number; reason: string }[] };
+      const sites = SITES;
+      for (const [index, row] of rows.entries()) {
+        const name = row.fullName?.trim();
+        if (!name) {
+          result.skipped.push({ row: index + 1, reason: "missing name" });
+          continue;
+        }
+        const email = row.email?.trim().toLowerCase() || null;
+        const site = row.siteName ? sites.find((s) => s.name.toLowerCase() === row.siteName!.trim().toLowerCase()) : undefined;
+        const existing = profiles.find((p) => (email && p.email?.toLowerCase() === email) || (row.employeeNo && p.employeeNo === row.employeeNo) || p.fullName.toLowerCase() === name.toLowerCase());
+        const manager = profiles.find((p) => (row.reportsToEmail && p.email?.toLowerCase() === row.reportsToEmail.toLowerCase()) || (row.reportsToName && p.fullName.toLowerCase() === row.reportsToName.toLowerCase()));
+        const next: Profile = {
+          id: existing?.id ?? `p-${crypto.randomUUID().slice(0, 8)}`,
+          fullName: name,
+          email,
+          phone: row.phone?.trim() || null,
+          role: row.role ?? existing?.role ?? "worker",
+          siteId: site?.id ?? existing?.siteId ?? null,
+          siteName: site?.name ?? existing?.siteName ?? null,
+          employeeNo: row.employeeNo?.trim() || existing?.employeeNo || null,
+          reportsTo: manager?.id ?? existing?.reportsTo ?? null,
+          reportsToName: manager?.fullName ?? existing?.reportsToName ?? null,
+          language: row.language?.trim().toLowerCase() || existing?.language || null,
+          active: true,
+        };
+        if (existing) {
+          profiles = profiles.map((p) => (p.id === existing.id ? next : p));
+          result.updated += 1;
+        } else {
+          profiles = [...profiles, next];
+          result.created += 1;
+        }
+      }
+      profiles.sort((a, b) => a.fullName.localeCompare(b.fullName));
+      return result;
+    },
+
+    async updateProfile(id, patch) {
+      const index = profiles.findIndex((p) => p.id === id);
+      if (index === -1) throw new Error(`Profile ${id} not found`);
+      const updated: Profile = { ...profiles[index], ...patch, id };
+      updated.siteName = SITES.find((s) => s.id === updated.siteId)?.name ?? null;
+      updated.reportsToName = profileName(updated.reportsTo);
+      profiles[index] = updated;
+      return structuredClone(updated);
+    },
+
+    async removeProfile(id) {
+      profiles = profiles.filter((p) => p.id !== id);
+    },
+
+    async listTasks() {
+      return structuredClone(tasks);
+    },
+
+    async createTask(input, createdById) {
+      const task: Task = {
+        id: `task-${crypto.randomUUID().slice(0, 8)}`,
+        title: input.title.trim(),
+        description: input.description.trim(),
+        priority: input.priority,
+        status: "open",
+        assigneeId: input.assigneeId,
+        assigneeName: profileName(input.assigneeId),
+        createdById,
+        createdByName: profileName(createdById),
+        siteId: input.siteId,
+        incidentId: input.incidentId,
+        incidentReference: incidents.find((i) => i.id === input.incidentId)?.reference ?? null,
+        dueDate: input.dueDate,
+        feedback: "",
+        completedAt: null,
+        createdAt: new Date().toISOString(),
+        updatedAt: null,
+      };
+      tasks = [task, ...tasks];
+      return structuredClone(task);
+    },
+
+    async updateTask(id, patch) {
+      const index = tasks.findIndex((t) => t.id === id);
+      if (index === -1) throw new Error(`Task ${id} not found`);
+      const current = tasks[index];
+      const updated: Task = {
+        ...current,
+        status: patch.status ?? current.status,
+        feedback: patch.feedback !== undefined ? patch.feedback.trim() : current.feedback,
+        assigneeId: patch.assigneeId !== undefined ? patch.assigneeId : current.assigneeId,
+        assigneeName: patch.assigneeId !== undefined ? profileName(patch.assigneeId) : current.assigneeName,
+        dueDate: patch.dueDate !== undefined ? patch.dueDate : current.dueDate,
+        priority: patch.priority ?? current.priority,
+        completedAt: (patch.status ?? current.status) === "done" ? (current.completedAt ?? new Date().toISOString()) : null,
+        updatedAt: new Date().toISOString(),
+      };
+      tasks[index] = updated;
+      return structuredClone(updated);
     },
 
     async trackIncident(code) {

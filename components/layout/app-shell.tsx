@@ -3,27 +3,34 @@
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import {
+  ClipboardListIcon,
   ClipboardPlusIcon,
   CloudOffIcon,
   HardHatIcon,
   LayoutDashboardIcon,
+  LineChartIcon,
   LogOutIcon,
   ShieldCheckIcon,
+  UsersIcon,
 } from "lucide-react";
 import { LanguageToggle } from "@/components/LanguageToggle";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { cn } from "@/lib/utils";
 import { APP_NAME } from "@/lib/constants";
 import { useAuth } from "@/lib/auth/auth-context";
+import { can, type Permission } from "@/lib/auth/permissions";
 import { useLanguage } from "@/lib/i18n/LanguageContext";
 import { useIncidentStore } from "@/lib/store/incident-store";
 import { panelClass } from "@/lib/tones";
 
-const NAV = [
-  { href: "/", key: "nav.home", icon: ShieldCheckIcon },
-  { href: "/report", key: "nav.report", icon: ClipboardPlusIcon },
-  { href: "/dashboard", key: "nav.dashboard", icon: LayoutDashboardIcon },
-] as const;
+const NAV: { href: string; key: string; icon: typeof ShieldCheckIcon; permission?: Permission; mobile: boolean }[] = [
+  { href: "/", key: "nav.home", icon: ShieldCheckIcon, mobile: true },
+  { href: "/report", key: "nav.report", icon: ClipboardPlusIcon, mobile: true },
+  { href: "/dashboard", key: "nav.dashboard", icon: LayoutDashboardIcon, mobile: true },
+  { href: "/tasks", key: "home.tasks", icon: ClipboardListIcon, permission: "tasks.view", mobile: true },
+  { href: "/reports", key: "home.reports", icon: LineChartIcon, permission: "reports.view", mobile: true },
+  { href: "/people", key: "home.people", icon: UsersIcon, permission: "people.manage", mobile: false },
+];
 
 export function AppShell({
   children,
@@ -38,8 +45,11 @@ export function AppShell({
   const router = useRouter();
   const { t } = useLanguage();
   const { enabled: authEnabled, session, email, signOut } = useAuth();
-  const { pendingCount, syncQueuedReports } = useIncidentStore();
+  const { pendingCount, syncQueuedReports, role } = useIncidentStore();
   const heading = pageHeading(pathname, t);
+  // Signed-in roles see their own pages; everyone else sees the three public tabs.
+  const nav = NAV.filter((item) => !item.permission || ((!authEnabled || session) && can(role, item.permission)));
+  const mobileNav = nav.filter((item) => item.mobile);
 
   async function handleSignOut() {
     await signOut();
@@ -62,7 +72,7 @@ export function AppShell({
           </Link>
           <div className="flex items-center gap-1.5 sm:gap-2">
             <nav className="hidden items-center gap-1 md:flex">
-              {NAV.map((item) => {
+              {nav.map((item) => {
                 const active = pathname === item.href;
                 return (
                   <Link
@@ -134,8 +144,11 @@ export function AppShell({
         data-app-tabbar
         className="fixed inset-x-0 bottom-[var(--kb-inset,0px)] z-40 border-t border-border bg-background/95 px-2 pt-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] backdrop-blur-md md:hidden"
       >
-        <div className="mx-auto grid max-w-lg grid-cols-3 gap-1">
-          {NAV.map((item) => {
+        <div
+          className="mx-auto grid max-w-lg gap-1"
+          style={{ gridTemplateColumns: `repeat(${mobileNav.length}, minmax(0, 1fr))` }}
+        >
+          {mobileNav.map((item) => {
             const active = pathname === item.href;
             const isReport = item.href === "/report";
             return (
@@ -173,5 +186,6 @@ function pageHeading(pathname: string, t: (key: string) => string) {
   if (pathname.startsWith("/dashboard")) {
     return { eyebrow: t("roles.officerEyebrow"), title: t("header.dashboardTitle") };
   }
+  // /tasks, /reports and /people render their own heading.
   return null;
 }

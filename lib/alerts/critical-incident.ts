@@ -38,13 +38,15 @@ export function toCriticalIncidentAlertPayload(incident: Incident): CriticalInci
 
 /**
  * Fire-and-forget. Never throws — report submission must not depend on email delivery.
- * With Supabase the server only trusts `incidentId` and re-reads the incident itself;
- * the remaining fields are used in demo (mock) mode only.
+ * Every report is sent: the server routes it by role (foreman → officers → HSE
+ * manager) and raises the statutory critical alert when needed. With Supabase
+ * the server only trusts `incidentId` and re-reads the incident itself; the
+ * remaining fields are used in demo (mock) mode only.
  */
-export function dispatchCriticalIncidentAlert(incident: Incident) {
-  if (!shouldDispatchCriticalAlert(incident)) return;
+export function dispatchCriticalIncidentAlert(incident: Incident, language?: string) {
+  if (incident.pending) return;
 
-  const payload = toCriticalIncidentAlertPayload(incident);
+  const payload = { ...toCriticalIncidentAlertPayload(incident), language };
 
   void fetch("/api/alerts/critical-incident", {
     method: "POST",

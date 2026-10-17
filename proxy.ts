@@ -2,8 +2,8 @@ import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 import { getSupabaseEnv, isSupabaseConfigured } from "@/lib/supabase/env";
 
-/** Routes only safety officers may open. Field reporting (/report) stays open. */
-const PROTECTED_PREFIXES = ["/dashboard", "/skyddsrond"];
+/** Routes only signed-in staff may open. Field reporting (/report) and /track stay open. */
+const PROTECTED_PREFIXES = ["/dashboard", "/skyddsrond", "/reports", "/tasks", "/people"];
 
 function isProtected(pathname: string) {
   return PROTECTED_PREFIXES.some((prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`));

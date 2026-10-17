@@ -23,6 +23,8 @@ import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { StatutoryBanner } from "@/components/layout/statutory-banner";
+import { LocationPicker, type LatLng } from "@/components/report/location-picker";
+import { NearbyPlaces } from "@/components/report/nearby-places";
 import { useVoiceCapture } from "@/hooks/use-voice-capture";
 import { analyzeReport, languageName } from "@/lib/ai/client";
 import type { ReportAnalysis } from "@/lib/ai/provider";
@@ -35,7 +37,7 @@ import { useIncidentStore } from "@/lib/store/incident-store";
 import { categoryLabel, severityLabel, typeLabel } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { panelClass, severityClass } from "@/lib/tones";
-import type { IncidentType, ReportDraft } from "@/lib/types";
+import type { IncidentType, ReportDraft, SitePerson } from "@/lib/types";
 
 const TYPE_HINT: Record<IncidentType, string> = {
   "near-miss": "incident.nearMissHint",
@@ -53,6 +55,8 @@ interface Draft extends Omit<ReportDraft, "severity"> {
   originalLanguage: string | null;
   originalText: string | null;
   aiConfidence: number | null;
+  position: LatLng | null;
+  reporter: SitePerson | null;
 }
 
 const EMPTY_DRAFT: Draft = {
@@ -71,6 +75,8 @@ const EMPTY_DRAFT: Draft = {
   originalLanguage: null,
   originalText: null,
   aiConfidence: null,
+  position: null,
+  reporter: null,
 };
 
 type AnalysisState =
@@ -82,7 +88,7 @@ type AnalysisState =
 export function ReportWizard({ aiEnabled = false }: { aiEnabled?: boolean }) {
   const router = useRouter();
   const { locale, t } = useLanguage();
-  const { sites, createIncident, loading, error } = useIncidentStore();
+  const { sites, createIncident, loading, error, listSitePeople } = useIncidentStore();
   const [step, setStep] = useState(0);
   const [draft, setDraft] = useState<Draft>(EMPTY_DRAFT);
   const [submitting, setSubmitting] = useState(false);
@@ -100,25 +106,49 @@ export function ReportWizard({ aiEnabled = false }: { aiEnabled?: boolean }) {
     patch({ description: [base, text].filter(Boolean).join(" ") });
   }, locale);
 
-  // The last-used site comes first and is pre-selected until the worker picks another.
+  // The last-used site is listed first but never pre-selected: the worker (or the
+  // assistant, from the voice note) names the place every time.
   const orderedSites = lastSite
     ? [...sites].sort((a, b) => Number(b.id === lastSite.siteId) - Number(a.id === lastSite.siteId))
     : sites;
-  const siteId = draft.siteId || (lastSite && sites.some((site) => site.id === lastSite.siteId) ? lastSite.siteId : "");
+  const siteId = draft.siteId;
   const selectedSite = sites.find((site) => site.id === siteId);
   const locations = selectedSite?.locations ?? [];
-  const locationId =
-    draft.locationId ||
-    (locations.length === 1
-      ? locations[0].id
-      : lastSite && lastSite.siteId === siteId && locations.some((item) => item.id === lastSite.locationId)
-        ? lastSite.locationId
-        : "");
+  const locationId = draft.locationId || (locations.length === 1 ? locations[0].id : "");
   const selectedLocation = locations.find((location) => location.id === locationId);
+  const mapCenter: LatLng | null =
+    selectedLocation?.latitude != null && selectedLocation?.longitude != null
+      ? { latitude: selectedLocation.latitude, longitude: selectedLocation.longitude }
+      : selectedSite?.latitude != null && selectedSite?.longitude != null
+        ? { latitude: selectedSite.latitude, longitude: selectedSite.longitude }
+        : null;
 
   const severity = draft.type ? deriveSeverity(draft.type, draft) : null;
-  const step1Ready = Boolean(draft.type && siteId && locationId);
+  const step1Ready = Boolean(draft.type && siteId && locationId && draft.position);
   const step2Ready = Boolean(severity && draft.category && draft.description.trim().length >= 8);
+
+  // People on the chosen site, so the reporter can pick their own name.
+  const [sitePeople, setSitePeople] = useState<{ siteId: string; people: SitePerson[] } | null>(null);
+  const [peopleQuery, setPeopleQuery] = useState("");
+  useEffect(() => {
+    if (!siteId) return;
+    let cancelled = false;
+    listSitePeople(siteId)
+      .then((people) => {
+        if (!cancelled) setSitePeople({ siteId, people });
+      })
+      .catch(() => {
+        if (!cancelled) setSitePeople({ siteId, people: [] });
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [siteId, listSitePeople]);
+  const peopleOnSite = sitePeople?.siteId === siteId ? sitePeople.people : [];
+  const filteredPeople = peopleOnSite.filter((person) => {
+    const needle = peopleQuery.trim().toLowerCase();
+    return !needle || person.fullName.toLowerCase().includes(needle) || (person.employeeNo ?? "").toLowerCase().includes(needle);
+  });
 
   function patch(next: Partial<Draft>) {
     setDraft((current) => ({ ...current, ...next }));
@@ -161,12 +191,15 @@ export function ReportWizard({ aiEnabled = false }: { aiEnabled?: boolean }) {
       if (input.quick && next) {
         // Everything known? Go straight to the check-and-send step; otherwise stop where something is missing.
         const filled = next as Draft;
-        const siteKnown = Boolean(filled.siteId || lastSite) && Boolean(filled.locationId || lastSite?.locationId);
+        const site = sites.find((item) => item.id === filled.siteId);
+        const siteKnown = Boolean(site) && Boolean(filled.locationId || site?.locations.length === 1);
         const detailsKnown = Boolean(filled.category && filled.hurt !== null && filled.danger !== null && filled.description.trim().length >= 8);
-        if (filled.type && siteKnown && detailsKnown) setStep(2);
-        else if (filled.type && siteKnown) setStep(1);
+        // The exact spot on the map is always confirmed by hand, so the quick path stops on step 1 at most.
+        if (filled.type && siteKnown && filled.position && detailsKnown) setStep(2);
+        else if (filled.type && siteKnown && filled.position) setStep(1);
         if (!filled.type) toast.message(t("quick.missingType"));
         else if (!siteKnown) toast.message(t("quick.missingPlace"));
+        else if (!filled.position) toast.message(t("map.required"));
         else toast.success(t("quick.filled"));
       }
     } catch (caught) {
@@ -218,9 +251,10 @@ export function ReportWizard({ aiEnabled = false }: { aiEnabled?: boolean }) {
   }
 
   async function submit() {
-    if (!draft.type || !draft.category || !severity || !siteId || !locationId) return;
+    if (!draft.type || !draft.category || !severity || !siteId || !locationId || !draft.position) return;
     setSubmitting(true);
     try {
+      const reporter = draft.anonymous ? null : draft.reporter;
       const created = await createIncident({
         type: draft.type,
         siteId,
@@ -232,7 +266,10 @@ export function ReportWizard({ aiEnabled = false }: { aiEnabled?: boolean }) {
         photoFiles: draft.photoFiles,
         audioFile: voice.audioBlob ?? draft.audioFile,
         anonymous: draft.anonymous,
-        reporterName: draft.anonymous ? null : DEFAULT_REPORTER_NAME,
+        reporterName: draft.anonymous ? null : (reporter?.fullName ?? DEFAULT_REPORTER_NAME),
+        reporterProfileId: reporter?.id ?? null,
+        latitude: draft.position.latitude,
+        longitude: draft.position.longitude,
         originalLanguage: draft.originalLanguage,
         originalText: draft.originalText,
         summarySv: draft.summarySv,
@@ -258,6 +295,7 @@ export function ReportWizard({ aiEnabled = false }: { aiEnabled?: boolean }) {
     setSubmitted(null);
     setAnalysis({ status: "idle" });
     analyzedBlobRef.current = null;
+    setPeopleQuery("");
     setStep(0);
     voice.clearAudio();
   }
@@ -396,7 +434,7 @@ export function ReportWizard({ aiEnabled = false }: { aiEnabled?: boolean }) {
                 <ChoiceButton
                   key={site.id}
                   active={siteId === site.id}
-                  onClick={() => patch({ siteId: site.id, locationId: "" })}
+                  onClick={() => patch({ siteId: site.id, locationId: "", position: null })}
                   className="min-h-14 py-3"
                 >
                   <span className="flex items-center gap-2">
@@ -420,7 +458,7 @@ export function ReportWizard({ aiEnabled = false }: { aiEnabled?: boolean }) {
                     <ChoiceButton
                       key={location.id}
                       active={locationId === location.id}
-                      onClick={() => patch({ locationId: location.id })}
+                      onClick={() => patch({ locationId: location.id, position: null })}
                       className="min-h-14 px-3 py-3 text-sm font-medium"
                     >
                       {location.name}
@@ -430,6 +468,22 @@ export function ReportWizard({ aiEnabled = false }: { aiEnabled?: boolean }) {
               </>
             )}
           </fieldset>
+
+          {siteId && locationId && (
+            <fieldset>
+              <legend className="mb-1 text-lg font-semibold">{t("map.title")}</legend>
+              <p className="mb-3 text-sm text-muted-foreground">{t("map.hint")}</p>
+              <LocationPicker
+                key={`${siteId}:${locationId}`}
+                center={mapCenter}
+                value={draft.position}
+                onChange={(position) => patch({ position })}
+              />
+              {!draft.position && (
+                <p className={cn("mt-3 rounded-lg border px-3 py-2 text-sm", panelClass.warning)}>{t("map.required")}</p>
+              )}
+            </fieldset>
+          )}
         </section>
       )}
 
@@ -543,6 +597,10 @@ export function ReportWizard({ aiEnabled = false }: { aiEnabled?: boolean }) {
             )}
           </fieldset>
 
+          {draft.hurt === true && draft.position && (
+            <NearbyPlaces latitude={draft.position.latitude} longitude={draft.position.longitude} />
+          )}
+
           <fieldset>
             <legend className="mb-3 text-lg font-semibold">{t("incident.whatRisk")}</legend>
             <div className="grid grid-cols-2 gap-2">
@@ -638,6 +696,49 @@ export function ReportWizard({ aiEnabled = false }: { aiEnabled?: boolean }) {
               <strong className="font-semibold">{t("report.whoSeesTitle")}</strong> {t("report.whoSeesBody")}
             </p>
           </div>
+
+          {!draft.anonymous && peopleOnSite.length > 0 && (
+            <fieldset>
+              <legend className="mb-1 text-lg font-semibold">{t("reporter.title")}</legend>
+              <p className="mb-3 text-sm text-muted-foreground">{t("reporter.hint")}</p>
+              {draft.reporter ? (
+                <div className="flex items-center justify-between gap-3 rounded-2xl border border-amber-500 bg-amber-500/15 px-4 py-3">
+                  <span className="min-w-0">
+                    <span className="block font-medium">{t("reporter.selected", { name: draft.reporter.fullName })}</span>
+                    <span className="block text-xs text-muted-foreground">
+                      {t(`roleNames.${draft.reporter.role}`)}
+                      {draft.reporter.employeeNo ? ` · ${draft.reporter.employeeNo}` : ""}
+                    </span>
+                  </span>
+                  <Button type="button" variant="outline" size="sm" className="h-10" onClick={() => patch({ reporter: null })}>
+                    {t("reporter.change")}
+                  </Button>
+                </div>
+              ) : (
+                <>
+                  <input
+                    type="search"
+                    value={peopleQuery}
+                    onChange={(event) => setPeopleQuery(event.target.value)}
+                    placeholder={t("reporter.search")}
+                    className="mb-2 h-12 w-full rounded-xl border border-border bg-background px-4 text-base"
+                  />
+                  <div className="grid max-h-64 gap-2 overflow-y-auto">
+                    {filteredPeople.slice(0, 30).map((person) => (
+                      <ChoiceButton key={person.id} active={false} onClick={() => patch({ reporter: person })} className="min-h-12 px-4 py-2.5">
+                        <span className="block text-sm font-medium">{person.fullName}</span>
+                        <span className="block text-xs text-muted-foreground">
+                          {t(`roleNames.${person.role}`)}
+                          {person.employeeNo ? ` · ${person.employeeNo}` : ""}
+                        </span>
+                      </ChoiceButton>
+                    ))}
+                    {filteredPeople.length === 0 && <p className="text-sm text-muted-foreground">{t("reporter.none")}</p>}
+                  </div>
+                </>
+              )}
+            </fieldset>
+          )}
         </section>
       )}
 
@@ -660,8 +761,11 @@ export function ReportWizard({ aiEnabled = false }: { aiEnabled?: boolean }) {
           </div>
           <ReviewRow
             label={t("report.reporter")}
-            value={draft.anonymous ? t("report.anonymousPerson") : t("report.siteWorker")}
+            value={draft.anonymous ? t("report.anonymousPerson") : (draft.reporter?.fullName ?? t("report.siteWorker"))}
           />
+          {draft.position && (
+            <ReviewRow label={t("map.title")} value={`${draft.position.latitude.toFixed(5)}, ${draft.position.longitude.toFixed(5)}`} />
+          )}
           <div className="rounded-xl border border-border bg-card px-4 py-3">
             <p className="text-sm text-muted-foreground">{t("report.description")}</p>
             <p className="mt-1 text-sm leading-relaxed whitespace-pre-line">{draft.description}</p>
