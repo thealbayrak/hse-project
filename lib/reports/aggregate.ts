@@ -77,7 +77,14 @@ export function badgeFor(count: number): ReporterStat["badge"] {
 /** Everything the Reports screen shows, computed from the incidents in a period. */
 export function summarize(all: Incident[], period: Period, today = stockholmDate(new Date())): ReportSummary {
   const incidents = all.filter((incident) => inPeriod(incident.createdAt, period));
-  const byType: Record<IncidentType, number> = { "near-miss": 0, hazard: 0, accident: 0 };
+  const byType: Record<IncidentType, number> = {
+    "near-miss": 0,
+    hazard: 0,
+    accident: 0,
+    "good-observation": 0,
+    "positive-observation": 0,
+    environmental: 0,
+  };
   const bySeverity: Record<Severity, number> = { low: 0, medium: 0, high: 0, critical: 0 };
   const categoryCounts = new Map<RiskCategory, number>();
   const siteStats = new Map<string, { siteId: string; siteName: string; count: number; critical: number; resolved: number }>();

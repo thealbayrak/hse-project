@@ -35,10 +35,14 @@ import {
 import { toSafetyWalkSummary } from "@/lib/supabase/mappers";
 import { isSupabaseConfigured } from "@/lib/supabase/env";
 import type {
+  Audit,
+  ChecklistTemplate,
   Contact,
+  CreateAuditInput,
   CreateIncidentInput,
   CreateSafetyWalkInput,
   CreateTaskInput,
+  CreateTemplateInput,
   DashboardMetrics,
   Incident,
   IncidentAnalysis,
@@ -53,6 +57,7 @@ import type {
   SafetyWalkSummary,
   Site,
   TrackedIncident,
+  UpdateAuditInput,
   UpdateCapaInput,
 } from "@/lib/types";
 
@@ -85,6 +90,12 @@ interface IncidentStoreValue {
   listTasks: () => Promise<Task[]>;
   createTask: (input: CreateTaskInput) => Promise<Task>;
   updateTask: (id: string, patch: UpdateTaskInput) => Promise<Task>;
+  listTemplates: () => Promise<ChecklistTemplate[]>;
+  createTemplate: (input: CreateTemplateInput) => Promise<ChecklistTemplate>;
+  updateTemplate: (id: string, patch: Partial<CreateTemplateInput & { active: boolean }>) => Promise<ChecklistTemplate>;
+  listAudits: () => Promise<Audit[]>;
+  createAudit: (input: CreateAuditInput) => Promise<Audit>;
+  updateAudit: (id: string, patch: UpdateAuditInput) => Promise<Audit>;
   updateStatus: (incidentId: string, status: IncidentStatus) => Promise<Incident>;
   saveIncidentAnalysis: (incidentId: string, analysis: IncidentAnalysis, language: string) => Promise<Incident>;
   listContacts: () => Promise<Contact[]>;
@@ -397,6 +408,31 @@ export function IncidentProvider({ children }: { children: React.ReactNode }) {
   );
   const updateTask = useCallback((id: string, patch: UpdateTaskInput) => repository.updateTask(id, patch), [repository]);
 
+  // Checklist templates and audits
+  const listTemplates = useCallback(() => repository.listTemplates(), [repository]);
+  const createTemplate = useCallback(
+    (input: CreateTemplateInput) => repository.createTemplate(input, profile?.id ?? null),
+    [repository, profile]
+  );
+  const updateTemplate = useCallback(
+    (id: string, patch: Partial<CreateTemplateInput & { active: boolean }>) => repository.updateTemplate(id, patch),
+    [repository]
+  );
+  const listAudits = useCallback(() => repository.listAudits(), [repository]);
+  const createAudit = useCallback(
+    (input: CreateAuditInput) => repository.createAudit(input, profile?.id ?? null),
+    [repository, profile]
+  );
+  const updateAudit = useCallback(
+    async (id: string, patch: UpdateAuditInput) => {
+      const updated = await repository.updateAudit(id, patch);
+      // Submitting may have raised hazards; the feed should show them.
+      if (patch.status === "submitted") await refresh().catch(() => undefined);
+      return updated;
+    },
+    [repository, refresh]
+  );
+
   const listContacts = useCallback(() => repository.listContacts(), [repository]);
   const addContact = useCallback(
     (input: { name: string; email: string; role?: string | null }) => repository.addContact(input),
@@ -430,6 +466,12 @@ export function IncidentProvider({ children }: { children: React.ReactNode }) {
       listTasks,
       createTask,
       updateTask,
+      listTemplates,
+      createTemplate,
+      updateTemplate,
+      listAudits,
+      createAudit,
+      updateAudit,
       updateStatus,
       saveIncidentAnalysis,
       listContacts,
@@ -462,6 +504,12 @@ export function IncidentProvider({ children }: { children: React.ReactNode }) {
       listTasks,
       createTask,
       updateTask,
+      listTemplates,
+      createTemplate,
+      updateTemplate,
+      listAudits,
+      createAudit,
+      updateAudit,
       updateStatus,
       saveIncidentAnalysis,
       listContacts,

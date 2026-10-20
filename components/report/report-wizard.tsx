@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import {
   CheckIcon,
@@ -13,6 +13,7 @@ import {
   LanguagesIcon,
   Loader2Icon,
   MicIcon,
+  QrCodeIcon,
   ShieldCheckIcon,
   SparklesIcon,
   SquareIcon,
@@ -34,15 +35,18 @@ import { isImageFile } from "@/lib/media";
 import { readLastSite, rememberLastSite, serverLastSite, subscribeLastSite } from "@/lib/report/last-site";
 import { deriveSeverity } from "@/lib/report/severity";
 import { useIncidentStore } from "@/lib/store/incident-store";
-import { categoryLabel, severityLabel, typeLabel } from "@/lib/format";
+import { categoriesLabel, categoryLabel, severityLabel, typeLabel } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { panelClass, severityClass } from "@/lib/tones";
-import type { IncidentType, ReportDraft, SitePerson } from "@/lib/types";
+import { isPositiveType, type IncidentType, type ReportDraft, type SitePerson } from "@/lib/types";
 
 const TYPE_HINT: Record<IncidentType, string> = {
   "near-miss": "incident.nearMissHint",
   hazard: "incident.hazardHint",
   accident: "incident.accidentHint",
+  "good-observation": "incident.goodObservationHint",
+  "positive-observation": "incident.positiveObservationHint",
+  environmental: "incident.environmentalHint",
 };
 
 const STEP_KEYS = ["report.stepWhat", "report.stepDetails", "report.stepReview"] as const;
@@ -62,8 +66,8 @@ interface Draft extends Omit<ReportDraft, "severity"> {
 const EMPTY_DRAFT: Draft = {
   type: null,
   siteId: "",
-  locationId: "",
-  category: null,
+  locationIds: [],
+  categories: [],
   hurt: null,
   danger: null,
   description: "",
@@ -87,6 +91,8 @@ type AnalysisState =
 
 export function ReportWizard({ aiEnabled = false }: { aiEnabled?: boolean }) {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const projectId = searchParams.get("project") ?? searchParams.get("site");
   const { locale, t } = useLanguage();
   const { sites, createIncident, loading, error, listSitePeople } = useIncidentStore();
   const [step, setStep] = useState(0);
@@ -111,21 +117,26 @@ export function ReportWizard({ aiEnabled = false }: { aiEnabled?: boolean }) {
   const orderedSites = lastSite
     ? [...sites].sort((a, b) => Number(b.id === lastSite.siteId) - Number(a.id === lastSite.siteId))
     : sites;
-  const siteId = draft.siteId;
+  // A QR code carries ?project=<site id>: the site is fixed and the list is hidden.
+  const lockedSite = projectId ? sites.find((site) => site.id === projectId) : undefined;
+  const siteId = draft.siteId || lockedSite?.id || "";
   const selectedSite = sites.find((site) => site.id === siteId);
   const locations = selectedSite?.locations ?? [];
-  const locationId = draft.locationId || (locations.length === 1 ? locations[0].id : "");
-  const selectedLocation = locations.find((location) => location.id === locationId);
+  const locationIds = draft.locationIds.filter((id) => locations.some((location) => location.id === id));
+  const selectedLocations = locations.filter((location) => locationIds.includes(location.id));
+  const firstLocation = selectedLocations[0];
   const mapCenter: LatLng | null =
-    selectedLocation?.latitude != null && selectedLocation?.longitude != null
-      ? { latitude: selectedLocation.latitude, longitude: selectedLocation.longitude }
+    firstLocation?.latitude != null && firstLocation?.longitude != null
+      ? { latitude: firstLocation.latitude, longitude: firstLocation.longitude }
       : selectedSite?.latitude != null && selectedSite?.longitude != null
         ? { latitude: selectedSite.latitude, longitude: selectedSite.longitude }
         : null;
 
+  const positive = draft.type ? isPositiveType(draft.type) : false;
   const severity = draft.type ? deriveSeverity(draft.type, draft) : null;
-  const step1Ready = Boolean(draft.type && siteId && locationId && draft.position);
-  const step2Ready = Boolean(severity && draft.category && draft.description.trim().length >= 8);
+  // Only the type and the site are required; area, map pin and risk type can be added later by the safety team.
+  const step1Ready = Boolean(draft.type && siteId);
+  const step2Ready = Boolean(severity && draft.description.trim().length >= 8);
 
   // People on the chosen site, so the reporter can pick their own name.
   const [sitePeople, setSitePeople] = useState<{ siteId: string; people: SitePerson[] } | null>(null);
@@ -171,13 +182,15 @@ export function ReportWizard({ aiEnabled = false }: { aiEnabled?: boolean }) {
       const result = await analyzeReport({ ...input, locale, sites });
       let next: Draft | null = null;
       setDraft((current) => {
+        const site = current.siteId || lockedSite?.id || result.siteId || "";
+        const suggestedLocation = result.siteId && site === result.siteId ? result.locationId : null;
         next = {
           ...current,
           type: current.type ?? result.type,
-          siteId: current.siteId || result.siteId || "",
-          locationId: current.locationId || (result.siteId && (!current.siteId || current.siteId === result.siteId) ? result.locationId ?? "" : ""),
+          siteId: site,
+          locationIds: current.locationIds.length ? current.locationIds : suggestedLocation ? [suggestedLocation] : [],
           description: result.transcript || current.description,
-          category: current.category ?? result.category,
+          categories: current.categories.length ? current.categories : result.category ? [result.category] : [],
           hurt: current.hurt ?? result.hurt,
           danger: current.danger ?? result.danger,
           summarySv: result.summarySv || null,
@@ -191,15 +204,13 @@ export function ReportWizard({ aiEnabled = false }: { aiEnabled?: boolean }) {
       if (input.quick && next) {
         // Everything known? Go straight to the check-and-send step; otherwise stop where something is missing.
         const filled = next as Draft;
-        const site = sites.find((item) => item.id === filled.siteId);
-        const siteKnown = Boolean(site) && Boolean(filled.locationId || site?.locations.length === 1);
-        const detailsKnown = Boolean(filled.category && filled.hurt !== null && filled.danger !== null && filled.description.trim().length >= 8);
-        // The exact spot on the map is always confirmed by hand, so the quick path stops on step 1 at most.
-        if (filled.type && siteKnown && filled.position && detailsKnown) setStep(2);
-        else if (filled.type && siteKnown && filled.position) setStep(1);
+        const siteKnown = sites.some((item) => item.id === filled.siteId);
+        const answersKnown = filled.type ? isPositiveType(filled.type) || (filled.hurt !== null && filled.danger !== null) : false;
+        const detailsKnown = answersKnown && filled.description.trim().length >= 8;
+        if (filled.type && siteKnown && detailsKnown) setStep(2);
+        else if (filled.type && siteKnown) setStep(1);
         if (!filled.type) toast.message(t("quick.missingType"));
         else if (!siteKnown) toast.message(t("quick.missingPlace"));
-        else if (!filled.position) toast.message(t("map.required"));
         else toast.success(t("quick.filled"));
       }
     } catch (caught) {
@@ -251,15 +262,17 @@ export function ReportWizard({ aiEnabled = false }: { aiEnabled?: boolean }) {
   }
 
   async function submit() {
-    if (!draft.type || !draft.category || !severity || !siteId || !locationId || !draft.position) return;
+    if (!draft.type || !severity || !siteId) return;
     setSubmitting(true);
     try {
       const reporter = draft.anonymous ? null : draft.reporter;
       const created = await createIncident({
         type: draft.type,
         siteId,
-        locationId,
-        category: draft.category,
+        locationId: locationIds[0] ?? "",
+        locationIds,
+        category: draft.categories[0] ?? "unclassified",
+        categories: draft.categories,
         severity,
         description: draft.description.trim(),
         mediaUrls: draft.mediaUrls,
@@ -268,14 +281,14 @@ export function ReportWizard({ aiEnabled = false }: { aiEnabled?: boolean }) {
         anonymous: draft.anonymous,
         reporterName: draft.anonymous ? null : (reporter?.fullName ?? DEFAULT_REPORTER_NAME),
         reporterProfileId: reporter?.id ?? null,
-        latitude: draft.position.latitude,
-        longitude: draft.position.longitude,
+        latitude: draft.position?.latitude ?? null,
+        longitude: draft.position?.longitude ?? null,
         originalLanguage: draft.originalLanguage,
         originalText: draft.originalText,
         summarySv: draft.summarySv,
         aiConfidence: draft.aiConfidence,
       });
-      rememberLastSite({ siteId, locationId });
+      rememberLastSite({ siteId, locationId: locationIds[0] ?? "" });
       setSubmitted({
         reference: created.reference,
         pending: Boolean(created.pending),
@@ -429,12 +442,23 @@ export function ReportWizard({ aiEnabled = false }: { aiEnabled?: boolean }) {
             {loading && !sites.length && (
               <p className="mb-3 text-sm text-muted-foreground">{t("report.loadingSites")}</p>
             )}
+            {lockedSite ? (
+              <div className="flex items-center gap-3 rounded-2xl border border-amber-500 bg-amber-500/15 px-4 py-3">
+                <QrCodeIcon className="size-5 shrink-0" />
+                <span className="min-w-0">
+                  <span className="block font-medium">{lockedSite.name}</span>
+                  <span className="block text-xs text-muted-foreground">
+                    {[lockedSite.organizationName, lockedSite.city].filter(Boolean).join(" · ")} · {t("report.projectLocked")}
+                  </span>
+                </span>
+              </div>
+            ) : (
             <div className="grid gap-2">
               {orderedSites.map((site) => (
                 <ChoiceButton
                   key={site.id}
                   active={siteId === site.id}
-                  onClick={() => patch({ siteId: site.id, locationId: "", position: null })}
+                  onClick={() => patch({ siteId: site.id, locationIds: [], position: null })}
                   className="min-h-14 py-3"
                 >
                   <span className="flex items-center gap-2">
@@ -450,38 +474,47 @@ export function ReportWizard({ aiEnabled = false }: { aiEnabled?: boolean }) {
                 </ChoiceButton>
               ))}
             </div>
-            {locations.length > 1 && (
+            )}
+            {siteId && locations.length > 1 && (
               <>
-                <p className="mt-4 mb-2 text-sm font-medium">{t("incident.whichArea")}</p>
+                <p className="mt-4 mb-1 text-sm font-medium">{t("incident.whichArea")}</p>
+                <p className="mb-2 text-xs text-muted-foreground">{t("incident.whichAreaHint")}</p>
                 <div className="grid grid-cols-2 gap-2">
-                  {locations.map((location) => (
-                    <ChoiceButton
-                      key={location.id}
-                      active={locationId === location.id}
-                      onClick={() => patch({ locationId: location.id, position: null })}
-                      className="min-h-14 px-3 py-3 text-sm font-medium"
-                    >
-                      {location.name}
-                    </ChoiceButton>
-                  ))}
+                  {locations.map((location) => {
+                    const active = locationIds.includes(location.id);
+                    return (
+                      <ChoiceButton
+                        key={location.id}
+                        active={active}
+                        onClick={() =>
+                          patch({
+                            locationIds: active ? locationIds.filter((id) => id !== location.id) : [...locationIds, location.id],
+                          })
+                        }
+                        className="min-h-14 px-3 py-3 text-sm font-medium"
+                      >
+                        <span className="flex items-center gap-2">
+                          {active && <CheckIcon className="size-4 shrink-0" />}
+                          {location.name}
+                        </span>
+                      </ChoiceButton>
+                    );
+                  })}
                 </div>
               </>
             )}
           </fieldset>
 
-          {siteId && locationId && (
+          {siteId && (
             <fieldset>
               <legend className="mb-1 text-lg font-semibold">{t("map.title")}</legend>
-              <p className="mb-3 text-sm text-muted-foreground">{t("map.hint")}</p>
+              <p className="mb-3 text-sm text-muted-foreground">{t("map.optionalHint")}</p>
               <LocationPicker
-                key={`${siteId}:${locationId}`}
+                key={`${siteId}:${firstLocation?.id ?? ""}`}
                 center={mapCenter}
                 value={draft.position}
                 onChange={(position) => patch({ position })}
               />
-              {!draft.position && (
-                <p className={cn("mt-3 rounded-lg border px-3 py-2 text-sm", panelClass.warning)}>{t("map.required")}</p>
-              )}
             </fieldset>
           )}
         </section>
@@ -570,6 +603,7 @@ export function ReportWizard({ aiEnabled = false }: { aiEnabled?: boolean }) {
             {aiEnabled && <p className="mt-2 text-xs text-muted-foreground">{t("ai.poweredBy")}</p>}
           </div>
 
+          {!positive && (
           <fieldset>
             <legend className="mb-1 text-lg font-semibold">{t("incident.howSerious")}</legend>
             <p className="mb-3 text-sm text-muted-foreground">{t("report.answerBoth")}</p>
@@ -596,30 +630,43 @@ export function ReportWizard({ aiEnabled = false }: { aiEnabled?: boolean }) {
               </p>
             )}
           </fieldset>
+          )}
 
           {draft.hurt === true && draft.position && (
             <NearbyPlaces latitude={draft.position.latitude} longitude={draft.position.longitude} />
           )}
 
           <fieldset>
-            <legend className="mb-3 text-lg font-semibold">{t("incident.whatRisk")}</legend>
+            <legend className="mb-1 text-lg font-semibold">{t("incident.whatRisk")}</legend>
+            <p className="mb-3 text-sm text-muted-foreground">{t("incident.whatRiskHint")}</p>
             <div className="grid grid-cols-2 gap-2">
-              {RISK_CATEGORIES.map((item) => (
-                <ChoiceButton
-                  key={item.id}
-                  active={draft.category === item.id}
-                  onClick={() => patch({ category: item.id })}
-                  className="min-h-14 px-3 py-3 text-sm font-medium"
-                >
-                  {categoryLabel(item.id, locale)}
-                </ChoiceButton>
-              ))}
+              {RISK_CATEGORIES.map((item) => {
+                const active = draft.categories.includes(item.id);
+                return (
+                  <ChoiceButton
+                    key={item.id}
+                    active={active}
+                    onClick={() =>
+                      patch({
+                        categories: active ? draft.categories.filter((id) => id !== item.id) : [...draft.categories, item.id],
+                      })
+                    }
+                    className="min-h-14 px-3 py-3 text-sm font-medium"
+                  >
+                    <span className="flex items-center gap-2">
+                      {active && <CheckIcon className="size-4 shrink-0" />}
+                      {categoryLabel(item.id, locale)}
+                    </span>
+                  </ChoiceButton>
+                );
+              })}
             </div>
           </fieldset>
 
           <div>
             <h2 className="text-lg font-semibold">{t("report.addPhoto")}</h2>
             <p className="mb-3 text-sm text-muted-foreground">{t("report.addPhotoHint")}</p>
+            <p className={cn("mb-3 rounded-lg border px-3 py-2 text-sm", panelClass.info)}>{t("report.photoRecommended")}</p>
             <input
               ref={fileInputRef}
               type="file"
@@ -748,9 +795,15 @@ export function ReportWizard({ aiEnabled = false }: { aiEnabled?: boolean }) {
           <ReviewRow label={t("report.type")} value={draft.type ? typeLabel(draft.type, locale) : "—"} />
           <ReviewRow
             label={t("report.place")}
-            value={selectedSite && selectedLocation ? `${selectedLocation.name} · ${selectedSite.name}` : "—"}
+            value={
+              selectedSite
+                ? selectedLocations.length
+                  ? `${selectedLocations.map((location) => location.name).join(", ")} · ${selectedSite.name}`
+                  : selectedSite.name
+                : "—"
+            }
           />
-          <ReviewRow label={t("report.risk")} value={draft.category ? categoryLabel(draft.category, locale) : "—"} />
+          <ReviewRow label={t("report.risk")} value={categoriesLabel(draft.categories, locale)} />
           <div className="flex items-center justify-between rounded-xl border border-border bg-card px-4 py-3">
             <span className="text-sm text-muted-foreground">{t("report.severity")}</span>
             {severity && (

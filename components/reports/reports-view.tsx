@@ -6,7 +6,7 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { downloadIncidentsCsv, printIncidentsPdf } from "@/lib/export";
+import { downloadIncidentsPdf, downloadIncidentsXlsx } from "@/lib/export";
 import { categoryLabel, severityLabel } from "@/lib/format";
 import { useLanguage } from "@/lib/i18n/LanguageContext";
 import { inPeriod, periodFor, summarize, trendBuckets, type Period, type PeriodPreset } from "@/lib/reports/aggregate";
@@ -29,13 +29,26 @@ export function ReportsView() {
   const maxBucket = Math.max(1, ...buckets.map((bucket) => bucket.count));
   const inRange = useMemo(() => incidents.filter((incident) => inPeriod(incident.createdAt, period)), [incidents, period]);
 
-  function exportCsv() {
-    downloadIncidentsCsv(inRange);
-    toast.success(t("toast.csvReady"));
+  async function exportCsv() {
+    try {
+      await downloadIncidentsXlsx(inRange, { ...metrics, totalReports: summary.total }, locale);
+      toast.success(t("toast.xlsxReady"));
+    } catch {
+      toast.error(t("toast.exportFailed"));
+    }
   }
 
-  function exportPdf() {
-    if (!printIncidentsPdf(inRange, { ...metrics, totalReports: summary.total })) toast.error(t("toast.pdfBlocked"));
+  async function exportPdf() {
+    try {
+      await downloadIncidentsPdf(inRange, { ...metrics, totalReports: summary.total }, {
+        locale,
+        subtitle: `${period.from} – ${period.to}`,
+        fileName: `sitesafety-report-${period.from}-${period.to}.pdf`,
+      });
+      toast.success(t("toast.pdfReady"));
+    } catch {
+      toast.error(t("toast.exportFailed"));
+    }
   }
 
   return (
@@ -200,11 +213,11 @@ export function ReportsView() {
       </section>
 
       <div className="flex flex-wrap gap-2">
-        <Button type="button" variant="outline" className="h-12 gap-2" onClick={exportCsv} disabled={!inRange.length}>
+        <Button type="button" variant="outline" className="h-12 gap-2" onClick={() => void exportCsv()} disabled={!inRange.length}>
           <FileSpreadsheetIcon className="size-4" />
           {t("reports.exportCsv")}
         </Button>
-        <Button type="button" variant="outline" className="h-12 gap-2" onClick={exportPdf} disabled={!inRange.length}>
+        <Button type="button" variant="outline" className="h-12 gap-2" onClick={() => void exportPdf()} disabled={!inRange.length}>
           <DownloadIcon className="size-4" />
           {t("reports.exportPdf")}
         </Button>

@@ -101,6 +101,9 @@ export interface Database {
           reporter_profile_id: string | null;
           latitude: number | null;
           longitude: number | null;
+          location_ids: string[];
+          categories: string[];
+          audit_id: string | null;
           created_at: string;
           updated_at: string | null;
         };
@@ -110,9 +113,12 @@ export interface Database {
           organization_id?: string | null;
           site_id: string;
           location_id?: string | null;
+          location_ids?: string[];
           location?: string | null;
           type: string;
-          category: string;
+          category?: string;
+          categories?: string[];
+          audit_id?: string | null;
           severity: string;
           status?: string;
           description: string;
@@ -210,6 +216,70 @@ export interface Database {
           updated_at?: string | null;
         };
         Update: Partial<Database["public"]["Tables"]["tasks"]["Insert"]>;
+        Relationships: [];
+      };
+      checklist_templates: {
+        Row: {
+          id: string;
+          organization_id: string | null;
+          name: string;
+          description: string | null;
+          items: Json;
+          active: boolean;
+          created_by: string | null;
+          created_at: string;
+          updated_at: string | null;
+        };
+        Insert: {
+          id?: string;
+          organization_id?: string | null;
+          name: string;
+          description?: string | null;
+          items?: Json;
+          active?: boolean;
+          created_by?: string | null;
+          created_at?: string;
+          updated_at?: string | null;
+        };
+        Update: Partial<Database["public"]["Tables"]["checklist_templates"]["Insert"]>;
+        Relationships: [];
+      };
+      audits: {
+        Row: {
+          id: string;
+          organization_id: string | null;
+          template_id: string | null;
+          template_name: string;
+          site_id: string | null;
+          assignee_id: string | null;
+          created_by: string | null;
+          due_date: string | null;
+          status: string;
+          items: Json;
+          note: string | null;
+          submitted_at: string | null;
+          completed_at: string | null;
+          created_at: string;
+          updated_at: string | null;
+        };
+        Insert: {
+          id?: string;
+          organization_id?: string | null;
+          template_id?: string | null;
+          template_name: string;
+          site_id?: string | null;
+          assignee_id?: string | null;
+          created_by?: string | null;
+          due_date?: string | null;
+          status?: string;
+          items?: Json;
+          note?: string | null;
+          submitted_at?: string | null;
+          completed_at?: string | null;
+          created_at?: string;
+          updated_at?: string | null;
+        };
+        Update: Partial<Database["public"]["Tables"]["audits"]["Insert"]>;
         Relationships: [];
       };
       notifications: {
@@ -414,8 +484,14 @@ export interface Database {
           p_reporter_profile_id?: string | null;
           p_latitude?: number | null;
           p_longitude?: number | null;
+          p_location_ids?: string[];
+          p_categories?: string[];
         };
         Returns: { id: string; reference: string; created_at: string; tracking_code: string | null }[];
+      };
+      audit_open_nonconformities: {
+        Args: { p_audit_id: string };
+        Returns: number;
       };
       list_site_people: {
         Args: { p_site_id: string };
@@ -491,3 +567,5 @@ export type SafetyWalkItemRow = Database["public"]["Tables"]["safety_walk_items"
 export type ClaimedAlertRow = Database["public"]["Functions"]["claim_incident_alert"]["Returns"][number];
 export type ProfileRow = Database["public"]["Tables"]["profiles"]["Row"];
 export type TaskRow = Database["public"]["Tables"]["tasks"]["Row"];
+export type TemplateRow = Database["public"]["Tables"]["checklist_templates"]["Row"];
+export type AuditRow = Database["public"]["Tables"]["audits"]["Row"];

@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import {
@@ -12,30 +12,55 @@ import {
   ClipboardListIcon,
   ClipboardPlusIcon,
   DownloadIcon,
+  EyeIcon,
   FileSpreadsheetIcon,
+  FilterXIcon,
   KanbanSquareIcon,
   ListIcon,
   ShieldAlertIcon,
+  SirenIcon,
   UserRoundXIcon,
 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
 import { StatutoryBanner } from "@/components/layout/statutory-banner";
 import { IncidentBoard } from "@/components/dashboard/incident-board";
 import { IncidentDetailDialog } from "@/components/dashboard/incident-detail-dialog";
 import { LatestSkyddsrondCard } from "@/components/dashboard/latest-skyddsrond-card";
 import { SkyddsrondDialog } from "@/components/skyddsrond/skyddsrond-dialog";
-import { downloadIncidentsCsv, printIncidentsPdf } from "@/lib/export";
-import { categoryLabel, placeLabel, relativeTime, severityLabel, statusLabel, typeLabel } from "@/lib/format";
+import { can } from "@/lib/auth/permissions";
+import { RISK_CATEGORIES } from "@/lib/constants";
+import { downloadIncidentsPdf, downloadIncidentsXlsx } from "@/lib/export";
+import { categoriesLabel, categoryLabel, placeLabel, relativeTime, severityLabel, statusLabel, typeLabel } from "@/lib/format";
 import { useLanguage } from "@/lib/i18n/LanguageContext";
+import { inPeriod } from "@/lib/reports/aggregate";
 import { useIncidentStore } from "@/lib/store/incident-store";
 import { cn } from "@/lib/utils";
 import { chipClass, panelClass, severityBarClass, statusClass } from "@/lib/tones";
-import type { Incident, IncidentStatus, SafetyWalkSummary, Severity } from "@/lib/types";
+import {
+  incidentCategories,
+  type Audit,
+  type Incident,
+  type IncidentStatus,
+  type IncidentType,
+  type RiskCategory,
+  type SafetyWalkSummary,
+  type Severity,
+} from "@/lib/types";
 
 const STATUS_FILTERS: IncidentStatus[] = ["open", "in-progress", "resolved"];
 const SEVERITY_FILTERS: Severity[] = ["critical", "high", "medium", "low"];
+
+export type DashboardTab = "observations" | "audits" | "accidents";
+const TABS: { id: DashboardTab; icon: typeof EyeIcon }[] = [
+  { id: "observations", icon: EyeIcon },
+  { id: "audits", icon: ClipboardCheckIcon },
+  { id: "accidents", icon: SirenIcon },
+];
+
+const OBSERVATION_TYPES: IncidentType[] = ["hazard", "near-miss", "environmental", "good-observation", "positive-observation"];
 
 type Focus = "overdue" | "unowned" | null;
 
@@ -59,22 +84,77 @@ export function isWalkStale(walk: SafetyWalkSummary | null, now = Date.now()) {
   return now - new Date(walk.completedAt).getTime() > 7 * DAY_MS;
 }
 
+/** Which tab an incident belongs to. Accidents win over source so an injury on a walk is never hidden. */
+export function tabOf(incident: Incident): DashboardTab {
+  if (incident.type === "accident") return "accidents";
+  if (incident.source === "skyddsrond" || incident.source === "audit") return "audits";
+  return "observations";
+}
+
+export interface FeedFilters {
+  statuses: IncidentStatus[];
+  severities: Severity[];
+  types: IncidentType[];
+  categories: RiskCategory[];
+  siteIds: string[];
+  from: string;
+  to: string;
+}
+
+const EMPTY_FILTERS: FeedFilters = { statuses: [], severities: [], types: [], categories: [], siteIds: [], from: "", to: "" };
+
+export function matchesFilters(incident: Incident, filters: FeedFilters) {
+  if (filters.statuses.length && !filters.statuses.includes(incident.status)) return false;
+  if (filters.severities.length && !filters.severities.includes(incident.severity)) return false;
+  if (filters.types.length && !filters.types.includes(incident.type)) return false;
+  if (filters.siteIds.length && !filters.siteIds.includes(incident.siteId)) return false;
+  if (filters.categories.length) {
+    const own = incidentCategories(incident);
+    if (!filters.categories.some((category) => own.includes(category))) return false;
+  }
+  if (filters.from || filters.to) {
+    if (!inPeriod(incident.createdAt, { from: filters.from || "1970-01-01", to: filters.to || "2999-12-31" })) return false;
+  }
+  return true;
+}
+
+function toggle<T>(list: T[], value: T): T[] {
+  return list.includes(value) ? list.filter((item) => item !== value) : [...list, value];
+}
+
 export function DashboardView() {
-  const { incidents, metrics, loading, error, highlightedIds, latestSafetyWalk } = useIncidentStore();
+  const { incidents, metrics, loading, error, highlightedIds, latestSafetyWalk, sites, role, listAudits } = useIncidentStore();
   const { locale, t } = useLanguage();
   const searchParams = useSearchParams();
-  const [status, setStatus] = useState<IncidentStatus | "all">("all");
-  const [severity, setSeverity] = useState<Severity | "all">("all");
+  const [tab, setTab] = useState<DashboardTab>("observations");
+  const [filters, setFilters] = useState<FeedFilters>(EMPTY_FILTERS);
   const [focus, setFocus] = useState<Focus>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [dismissedDeepLink, setDismissedDeepLink] = useState<string | null>(null);
   const [skyddsrondOpen, setSkyddsrondOpen] = useState(false);
   const [view, setView] = useState<"list" | "board">("list");
+  const [audits, setAudits] = useState<Audit[] | null>(null);
   const deepLinkId = searchParams.get("incidentId");
+  const canAudit = can(role, "audits.conduct");
 
   // `?incidentId=` (from the alert email) opens the incident until the user closes it.
   const activeId = selectedId ?? (deepLinkId && deepLinkId !== dismissedDeepLink ? deepLinkId : null);
   const selected = activeId ? (incidents.find((incident) => incident.id === activeId) ?? null) : null;
+
+  useEffect(() => {
+    if (tab !== "audits" || !canAudit) return;
+    let cancelled = false;
+    listAudits()
+      .then((rows) => {
+        if (!cancelled) setAudits(rows);
+      })
+      .catch(() => {
+        if (!cancelled) setAudits([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [tab, canAudit, listAudits]);
 
   function closeDetail() {
     setSelectedId(null);
@@ -87,30 +167,52 @@ export function DashboardView() {
   const walkStale = isWalkStale(latestSafetyWalk);
   const attentionCount = (overdue.length ? 1 : 0) + (unowned.length ? 1 : 0) + (walkStale ? 1 : 0);
 
-  const filtered = useMemo(
-    () =>
-      incidents.filter((incident) => {
-        if (focus === "overdue" && !isOverdue(incident, today)) return false;
-        if (focus === "unowned" && !isUnownedCritical(incident)) return false;
-        const statusOk = status === "all" || incident.status === status;
-        const severityOk = severity === "all" || incident.severity === severity;
-        return statusOk && severityOk;
-      }),
-    [incidents, status, severity, focus, today]
+  const inTab = useMemo(() => incidents.filter((incident) => tabOf(incident) === tab), [incidents, tab]);
+  const tabCounts = useMemo(
+    () => ({
+      observations: incidents.filter((incident) => tabOf(incident) === "observations" && incident.status !== "resolved").length,
+      audits: incidents.filter((incident) => tabOf(incident) === "audits" && incident.status !== "resolved").length,
+      accidents: incidents.filter((incident) => tabOf(incident) === "accidents" && incident.status !== "resolved").length,
+    }),
+    [incidents]
   );
 
-  function exportCsv() {
-    downloadIncidentsCsv(filtered);
-    toast.success(t("toast.csvReady"));
+  const filtered = useMemo(
+    () =>
+      inTab.filter((incident) => {
+        if (focus === "overdue" && !isOverdue(incident, today)) return false;
+        if (focus === "unowned" && !isUnownedCritical(incident)) return false;
+        return matchesFilters(incident, filters);
+      }),
+    [inTab, filters, focus, today]
+  );
+
+  const activeFilterCount =
+    filters.statuses.length + filters.severities.length + filters.types.length + filters.categories.length + filters.siteIds.length + (filters.from ? 1 : 0) + (filters.to ? 1 : 0);
+
+  // Types offered in the type filter depend on the tab.
+  const typeOptions: IncidentType[] = tab === "accidents" ? ["accident"] : tab === "audits" ? ["hazard", "near-miss", "environmental"] : OBSERVATION_TYPES;
+  const categoryOptions = useMemo(() => {
+    const used = new Set(inTab.flatMap((incident) => incidentCategories(incident)));
+    return RISK_CATEGORIES.filter((item) => used.has(item.id)).map((item) => item.id);
+  }, [inTab]);
+
+  async function exportXlsx() {
+    try {
+      await downloadIncidentsXlsx(filtered, metrics, locale);
+      toast.success(t("toast.xlsxReady"));
+    } catch {
+      toast.error(t("toast.exportFailed"));
+    }
   }
 
-  function exportPdf() {
-    const opened = printIncidentsPdf(filtered, metrics);
-    if (!opened) {
-      toast.error(t("toast.pdfBlocked"));
-      return;
+  async function exportPdf() {
+    try {
+      await downloadIncidentsPdf(filtered, metrics, { locale, subtitle: t(`dashboard.tab_${tab}`) });
+      toast.success(t("toast.pdfReady"));
+    } catch {
+      toast.error(t("toast.exportFailed"));
     }
-    toast.success(t("toast.pdfReady"));
   }
 
   const showSkeleton = loading && incidents.length === 0;
@@ -184,41 +286,54 @@ export function DashboardView() {
 
       {/* 2. Compact metrics */}
       <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-        <MetricTile
-          label={t("dashboard.totalReports")}
-          value={metrics.totalReports}
-          icon={ClipboardListIcon}
-          loading={showSkeleton}
-        />
-        <MetricTile
-          label={t("dashboard.openActions")}
-          value={metrics.openActions}
-          icon={ActivityIcon}
-          tone="amber"
-          loading={showSkeleton}
-        />
-        <MetricTile
-          label={t("dashboard.criticalNear")}
-          value={metrics.criticalNearMisses}
-          icon={AlertOctagonIcon}
-          tone="red"
-          loading={showSkeleton}
-        />
-        <MetricTile
-          label={t("dashboard.daysFree")}
-          value={metrics.daysIncidentFree}
-          icon={ShieldAlertIcon}
-          tone="emerald"
-          loading={showSkeleton}
-        />
+        <MetricTile label={t("dashboard.totalReports")} value={metrics.totalReports} icon={ClipboardListIcon} loading={showSkeleton} />
+        <MetricTile label={t("dashboard.openActions")} value={metrics.openActions} icon={ActivityIcon} tone="amber" loading={showSkeleton} />
+        <MetricTile label={t("dashboard.criticalNear")} value={metrics.criticalNearMisses} icon={AlertOctagonIcon} tone="red" loading={showSkeleton} />
+        <MetricTile label={t("dashboard.daysFree")} value={metrics.daysIncidentFree} icon={ShieldAlertIcon} tone="emerald" loading={showSkeleton} />
       </div>
 
-      <LatestSkyddsrondCard walk={latestSafetyWalk} />
+      {/* 3. Tabs: observations, walks & audits, accidents */}
+      <div role="tablist" aria-label={t("dashboard.tabs")} className="grid grid-cols-3 gap-1 rounded-2xl border border-border bg-secondary/40 p-1">
+        {TABS.map((item) => {
+          const active = tab === item.id;
+          const count = tabCounts[item.id];
+          return (
+            <button
+              key={item.id}
+              type="button"
+              role="tab"
+              aria-selected={active}
+              onClick={() => {
+                setTab(item.id);
+                setFilters((current) => ({ ...current, types: [], categories: [] }));
+                setFocus(null);
+              }}
+              className={cn(
+                "flex min-h-14 flex-col items-center justify-center gap-0.5 rounded-xl px-2 text-xs font-medium transition-colors sm:flex-row sm:gap-2 sm:text-sm",
+                active ? "bg-background text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"
+              )}
+            >
+              <item.icon className="size-4" />
+              <span>{t(`dashboard.tab_${item.id}`)}</span>
+              {count > 0 && (
+                <span className={cn("rounded-full px-1.5 py-0.5 text-[10px] font-semibold", active ? chipClass.amber : "bg-secondary")}>{count}</span>
+              )}
+            </button>
+          );
+        })}
+      </div>
 
-      {/* 3. Feed */}
+      {tab === "audits" && (
+        <div className="space-y-3">
+          <LatestSkyddsrondCard walk={latestSafetyWalk} />
+          {canAudit && <AuditsSummary audits={audits} />}
+        </div>
+      )}
+
+      {/* 4. Feed header */}
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <h2 className="text-lg font-semibold">{t("dashboard.feed")}</h2>
+          <h2 className="text-lg font-semibold">{t(`dashboard.tab_${tab}`)}</h2>
           <p className="text-sm text-muted-foreground">
             {loading ? t("dashboard.loading") : t("dashboard.reportsInView", { count: filtered.length })}
           </p>
@@ -241,35 +356,70 @@ export function DashboardView() {
               </button>
             ))}
           </div>
-          <Button className="h-12" variant="outline" onClick={exportCsv}>
+          <Button className="h-12" variant="outline" onClick={() => void exportXlsx()} disabled={!filtered.length}>
             <FileSpreadsheetIcon className="size-4" />
-            {t("buttons.exportCsv")}
+            {t("buttons.exportXlsx")}
           </Button>
-          <Button className="h-12" variant="outline" onClick={exportPdf}>
+          <Button className="h-12" variant="outline" onClick={() => void exportPdf()} disabled={!filtered.length}>
             <DownloadIcon className="size-4" />
             {t("buttons.exportPdf")}
           </Button>
         </div>
       </div>
 
-      <div className="flex flex-wrap gap-2">
-        <FilterChip active={status === "all"} onClick={() => setStatus("all")}>
-          {t("status.all")}
-        </FilterChip>
-        {STATUS_FILTERS.map((id) => (
-          <FilterChip key={id} active={status === id} onClick={() => setStatus(id)}>
-            {statusLabel(id, locale)}
-          </FilterChip>
-        ))}
-        <span className="mx-1 hidden h-8 w-px bg-border sm:block" />
-        <FilterChip active={severity === "all"} onClick={() => setSeverity("all")}>
-          {t("severity.allLevels")}
-        </FilterChip>
-        {SEVERITY_FILTERS.map((id) => (
-          <FilterChip key={id} active={severity === id} onClick={() => setSeverity(id)}>
-            {severityLabel(id, locale)}
-          </FilterChip>
-        ))}
+      {/* 5. Multi-select filters */}
+      <div className="space-y-3 rounded-2xl border border-border bg-card p-3">
+        <FilterRow label={t("dashboard.status")}>
+          {STATUS_FILTERS.map((id) => (
+            <FilterChip key={id} active={filters.statuses.includes(id)} onClick={() => setFilters((f) => ({ ...f, statuses: toggle(f.statuses, id) }))}>
+              {statusLabel(id, locale)}
+            </FilterChip>
+          ))}
+        </FilterRow>
+        <FilterRow label={t("dashboard.severityLabel")}>
+          {SEVERITY_FILTERS.map((id) => (
+            <FilterChip key={id} active={filters.severities.includes(id)} onClick={() => setFilters((f) => ({ ...f, severities: toggle(f.severities, id) }))}>
+              {severityLabel(id, locale)}
+            </FilterChip>
+          ))}
+        </FilterRow>
+        {typeOptions.length > 1 && (
+          <FilterRow label={t("dashboard.filterType")}>
+            {typeOptions.map((id) => (
+              <FilterChip key={id} active={filters.types.includes(id)} onClick={() => setFilters((f) => ({ ...f, types: toggle(f.types, id) }))}>
+                {typeLabel(id, locale)}
+              </FilterChip>
+            ))}
+          </FilterRow>
+        )}
+        {categoryOptions.length > 0 && (
+          <FilterRow label={t("dashboard.filterCategory")}>
+            {categoryOptions.map((id) => (
+              <FilterChip key={id} active={filters.categories.includes(id)} onClick={() => setFilters((f) => ({ ...f, categories: toggle(f.categories, id) }))}>
+                {categoryLabel(id, locale)}
+              </FilterChip>
+            ))}
+          </FilterRow>
+        )}
+        {sites.length > 1 && (
+          <FilterRow label={t("dashboard.filterSite")}>
+            {sites.map((site) => (
+              <FilterChip key={site.id} active={filters.siteIds.includes(site.id)} onClick={() => setFilters((f) => ({ ...f, siteIds: toggle(f.siteIds, site.id) }))}>
+                {site.name}
+              </FilterChip>
+            ))}
+          </FilterRow>
+        )}
+        <FilterRow label={t("dashboard.filterDate")}>
+          <Input type="date" aria-label={t("reports.from")} value={filters.from} max={filters.to || undefined} onChange={(event) => setFilters((f) => ({ ...f, from: event.target.value }))} className="h-11 w-auto" />
+          <Input type="date" aria-label={t("reports.to")} value={filters.to} min={filters.from || undefined} onChange={(event) => setFilters((f) => ({ ...f, to: event.target.value }))} className="h-11 w-auto" />
+          {activeFilterCount > 0 && (
+            <Button type="button" variant="ghost" size="sm" className="h-11 gap-2 text-muted-foreground" onClick={() => setFilters(EMPTY_FILTERS)}>
+              <FilterXIcon className="size-4" />
+              {t("dashboard.clearFilters", { n: activeFilterCount })}
+            </Button>
+          )}
+        </FilterRow>
       </div>
 
       {view === "board" && !showSkeleton && (
@@ -318,9 +468,16 @@ export function DashboardView() {
                 </Link>
               </CardContent>
             )}
-            {incidents.length > 0 && focus && (
+            {incidents.length > 0 && (focus || activeFilterCount > 0) && (
               <CardContent>
-                <Button variant="outline" className="h-11" onClick={() => setFocus(null)}>
+                <Button
+                  variant="outline"
+                  className="h-11"
+                  onClick={() => {
+                    setFocus(null);
+                    setFilters(EMPTY_FILTERS);
+                  }}
+                >
                   {t("status.all")}
                 </Button>
               </CardContent>
@@ -337,6 +494,39 @@ export function DashboardView() {
   );
 }
 
+function AuditsSummary({ audits }: { audits: Audit[] | null }) {
+  const { locale, t } = useLanguage();
+  const open = (audits ?? []).filter((audit) => audit.status !== "done" && audit.status !== "cancelled");
+  const openNc = (audits ?? []).reduce((sum, audit) => sum + audit.openNonConformities, 0);
+  return (
+    <Card className="py-4">
+      <CardContent className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex items-start gap-3">
+          <span className={cn("flex size-11 shrink-0 items-center justify-center rounded-xl", openNc ? chipClass.red : chipClass.emerald)}>
+            <ClipboardListIcon className="size-5" />
+          </span>
+          <div>
+            <p className="text-sm text-muted-foreground">{t("audits.dashboardTitle")}</p>
+            <p className="mt-1 text-lg font-semibold tracking-tight">
+              {audits === null ? "…" : t("audits.dashboardSummary", { open: open.length, nc: openNc })}
+            </p>
+            {open[0] && (
+              <p className="mt-1 text-xs text-muted-foreground">
+                {open[0].templateName} · {open[0].assigneeName ?? t("tasks.unassigned")}
+                {open[0].dueDate ? ` · ${new Intl.DateTimeFormat(locale === "sv" ? "sv-SE" : locale === "tr" ? "tr-TR" : "en-GB", { dateStyle: "medium" }).format(new Date(`${open[0].dueDate}T12:00:00`))}` : ""}
+              </p>
+            )}
+          </div>
+        </div>
+        <Link href="/audits" className="inline-flex h-11 items-center justify-center gap-2 rounded-lg border border-border px-4 text-sm font-medium hover:bg-secondary/60">
+          <ClipboardCheckIcon className="size-4" />
+          {t("audits.open")}
+        </Link>
+      </CardContent>
+    </Card>
+  );
+}
+
 function IncidentRow({
   incident,
   highlighted,
@@ -350,6 +540,7 @@ function IncidentRow({
 }) {
   const { locale, t } = useLanguage();
   const owner = incident.capa?.assigneeName;
+  const categories = incidentCategories(incident);
 
   return (
     <button
@@ -379,7 +570,8 @@ function IncidentRow({
         </span>
         <span className="flex items-center gap-2 text-sm text-muted-foreground">
           <span className="truncate">
-            {placeLabel(incident)} · {categoryLabel(incident.category, locale)}
+            {placeLabel(incident)} ·{" "}
+            <span className={cn(!categories.length && "font-medium text-amber-700 dark:text-amber-300")}>{categoriesLabel(categories, locale)}</span>
           </span>
           <span className="ml-auto flex shrink-0 items-center gap-2">
             <span
@@ -464,6 +656,15 @@ function MetricTile({
   );
 }
 
+function FilterRow({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div className="flex flex-wrap items-center gap-2">
+      <span className="w-full text-[11px] font-semibold tracking-wide text-muted-foreground uppercase sm:w-24">{label}</span>
+      {children}
+    </div>
+  );
+}
+
 function FilterChip({
   active,
   onClick,
@@ -479,8 +680,8 @@ function FilterChip({
       onClick={onClick}
       aria-pressed={active}
       className={cn(
-        "min-h-11 rounded-full border px-4 text-sm font-medium",
-        active ? "border-amber-500 bg-amber-500 text-slate-950" : "border-border bg-card text-foreground"
+        "min-h-10 rounded-full border px-3.5 text-sm font-medium",
+        active ? "border-amber-500 bg-amber-500 text-slate-950" : "border-border bg-background text-foreground"
       )}
     >
       {children}

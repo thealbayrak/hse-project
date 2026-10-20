@@ -44,6 +44,9 @@ const baseIncident: IncidentQueryRow = {
   reporter_profile_id: null,
   latitude: null,
   longitude: null,
+  location_ids: [],
+  categories: [],
+  audit_id: null,
   created_at: "2026-09-08T07:40:00.000Z",
   updated_at: null,
   sites: { id: "site-1", name: "Torslanda", city: "Gothenburg" },
@@ -97,7 +100,7 @@ describe("enum mappers", () => {
     expect(mapStatus("in_progress")).toBe("in-progress");
     expect(mapStatus("weird")).toBe("open");
     expect(mapCategory("falling_objects")).toBe("falling-objects");
-    expect(mapCategory("nope")).toBe("machine");
+    expect(mapCategory("nope")).toBe("other");
   });
 
   it("recognises uuids", () => {

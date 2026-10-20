@@ -62,7 +62,7 @@ describe("summarize", () => {
       "2026-10-20"
     );
     expect(summary.total).toBe(3);
-    expect(summary.byType).toEqual({ "near-miss": 1, hazard: 1, accident: 1 });
+    expect(summary.byType).toMatchObject({ "near-miss": 1, hazard: 1, accident: 1, environmental: 0 });
     expect(summary.bySeverity.critical).toBe(1);
     expect(summary.resolved).toBe(1);
     expect(summary.resolutionRate).toBeCloseTo(1 / 3);

@@ -7,6 +7,7 @@ import type { Database, Json } from "@/lib/supabase/database.types";
 import {
   incidentMediaPaths,
   isSkyddsrondIncident,
+  mapAudit,
   mapContact,
   mapIncident,
   mapProfile,
@@ -14,9 +15,11 @@ import {
   mapSafetyWalk,
   mapSite,
   mapTask,
+  mapTemplate,
   mapTracked,
   toSafetyWalkSummary,
   walkMediaPaths,
+  type AuditQueryRow,
   type IncidentQueryRow,
   type MediaUrlResolver,
   type ProfileQueryRow,
@@ -25,10 +28,15 @@ import {
   type TaskQueryRow,
 } from "@/lib/supabase/mappers";
 import type {
+  Audit,
+  AuditItemResult,
+  ChecklistTemplate,
   Contact,
+  CreateAuditInput,
   CreateIncidentInput,
   CreateSafetyWalkInput,
   CreateTaskInput,
+  CreateTemplateInput,
   Incident,
   IncidentAnalysis,
   IncidentStatus,
@@ -41,6 +49,7 @@ import type {
   SitePerson,
   Task,
   TrackedIncident,
+  UpdateAuditInput,
   UpdateCapaInput,
   UpdateTaskInput,
 } from "@/lib/types";
@@ -68,6 +77,9 @@ const PROFILE_SELECT = "*, sites ( id, name ), manager:profiles!profiles_reports
 
 const TASK_SELECT =
   "*, assignee:profiles!tasks_assignee_id_fkey ( id, full_name ), creator:profiles!tasks_created_by_fkey ( id, full_name ), incidents ( id, reference )";
+
+const AUDIT_SELECT =
+  "*, sites ( id, name ), assignee:profiles!audits_assignee_id_fkey ( id, full_name ), creator:profiles!audits_created_by_fkey ( id, full_name ), incidents ( id, reference, status )";
 
 type Client = SupabaseClient<Database>;
 
@@ -109,13 +121,21 @@ export class SupabaseIncidentRepository implements IncidentRepository {
   async createIncident(input: CreateIncidentInput): Promise<Incident> {
     const id = crypto.randomUUID();
     const attachments = await this.uploadIncidentMedia(id, input);
+    const locationIds = (input.locationIds ?? (input.locationId ? [input.locationId] : [])).filter(
+      (locationId) => locationId && locationId !== input.siteId
+    );
+    const categories = (input.categories ?? (input.category === "unclassified" ? [] : [input.category])).filter(
+      (category) => category !== "unclassified"
+    );
 
     const rpc = await this.client.rpc("submit_incident", {
       p_id: id,
       p_site_id: input.siteId,
-      p_location_id: input.locationId && input.locationId !== input.siteId ? input.locationId : null,
+      p_location_id: locationIds[0] ?? null,
+      p_location_ids: locationIds,
       p_type: input.type,
-      p_category: input.category,
+      p_category: categories[0] ?? "unclassified",
+      p_categories: categories,
       p_severity: input.severity,
       p_description: input.description,
       p_is_anonymous: input.anonymous,
@@ -138,16 +158,20 @@ export class SupabaseIncidentRepository implements IncidentRepository {
     // incident is assembled locally; the dashboard reloads it with full data.
     const sites = await this.listSites();
     const site = sites.find((item) => item.id === input.siteId);
-    const location = site?.locations.find((item) => item.id === input.locationId);
+    const locationNames = locationIds
+      .map((locationId) => site?.locations.find((item) => item.id === locationId)?.name)
+      .filter((name): name is string => Boolean(name));
     return {
       id: row.id,
       reference: row.reference,
       type: input.type,
       siteId: input.siteId,
-      locationId: input.locationId,
+      locationId: locationIds[0] ?? "",
+      locationIds,
       siteName: site?.name,
-      locationName: location?.name,
-      category: input.category,
+      locationName: locationNames.length ? locationNames.join(", ") : site?.name,
+      category: categories[0] ?? "unclassified",
+      categories,
       severity: input.severity,
       description: input.description,
       mediaUrls: input.mediaUrls,
@@ -171,6 +195,12 @@ export class SupabaseIncidentRepository implements IncidentRepository {
       .update({
         status: capa.status,
         ...(capa.severity ? { severity: capa.severity } : {}),
+        ...(capa.categories
+          ? {
+              categories: capa.categories.filter((category) => category !== "unclassified"),
+              category: capa.categories.find((category) => category !== "unclassified") ?? "unclassified",
+            }
+          : {}),
         ...(capa.publicNote !== undefined ? { public_note: capa.publicNote.trim() || null } : {}),
       })
       .eq("id", incidentId);
@@ -491,6 +521,157 @@ export class SupabaseIncidentRepository implements IncidentRepository {
     const result = await this.client.from("tasks").update(payload).eq("id", id).select(TASK_SELECT).single();
     if (result.error) throw result.error;
     return mapTask(result.data as unknown as TaskQueryRow);
+  }
+
+  // -------------------------------------------------------------------------
+  // Checklist templates and audits
+  // -------------------------------------------------------------------------
+
+  async listTemplates(): Promise<ChecklistTemplate[]> {
+    const result = await this.client.from("checklist_templates").select("*").order("name");
+    if (result.error) throw result.error;
+    return (result.data ?? []).map(mapTemplate);
+  }
+
+  async createTemplate(input: CreateTemplateInput, createdById: string | null): Promise<ChecklistTemplate> {
+    const result = await this.client
+      .from("checklist_templates")
+      .insert({
+        name: input.name.trim(),
+        description: input.description.trim() || null,
+        items: input.items as unknown as Json,
+        created_by: createdById,
+      })
+      .select("*")
+      .single();
+    if (result.error) throw result.error;
+    return mapTemplate(result.data);
+  }
+
+  async updateTemplate(id: string, patch: Partial<CreateTemplateInput & { active: boolean }>): Promise<ChecklistTemplate> {
+    const payload: Database["public"]["Tables"]["checklist_templates"]["Update"] = {};
+    if (patch.name !== undefined) payload.name = patch.name.trim();
+    if (patch.description !== undefined) payload.description = patch.description.trim() || null;
+    if (patch.items !== undefined) payload.items = patch.items as unknown as Json;
+    if (patch.active !== undefined) payload.active = patch.active;
+    const result = await this.client.from("checklist_templates").update(payload).eq("id", id).select("*").single();
+    if (result.error) throw result.error;
+    return mapTemplate(result.data);
+  }
+
+  async listAudits(): Promise<Audit[]> {
+    const result = await this.client.from("audits").select(AUDIT_SELECT).order("created_at", { ascending: false });
+    if (result.error) throw result.error;
+    return ((result.data ?? []) as unknown as AuditQueryRow[]).map(mapAudit);
+  }
+
+  async createAudit(input: CreateAuditInput, createdById: string | null): Promise<Audit> {
+    const template = await this.client.from("checklist_templates").select("*").eq("id", input.templateId).single();
+    if (template.error) throw template.error;
+    const mapped = mapTemplate(template.data);
+    const items: AuditItemResult[] = mapped.items.map((item) => ({
+      key: item.key,
+      title: item.title,
+      status: null,
+      note: "",
+      dueDate: null,
+      assigneeId: null,
+      incidentId: null,
+    }));
+    const result = await this.client
+      .from("audits")
+      .insert({
+        template_id: mapped.id,
+        template_name: mapped.name,
+        site_id: input.siteId,
+        assignee_id: input.assigneeId,
+        due_date: input.dueDate,
+        created_by: createdById,
+        items: items as unknown as Json,
+      })
+      .select(AUDIT_SELECT)
+      .single();
+    if (result.error) throw result.error;
+    return mapAudit(result.data as unknown as AuditQueryRow);
+  }
+
+  async updateAudit(id: string, patch: UpdateAuditInput): Promise<Audit> {
+    const existing = await this.client.from("audits").select(AUDIT_SELECT).eq("id", id).single();
+    if (existing.error) throw existing.error;
+    const audit = mapAudit(existing.data as unknown as AuditQueryRow);
+    let items = patch.items ?? audit.items;
+
+    // Submitting raises a hazard for every failed line that has none yet.
+    if (patch.status === "submitted") {
+      if (!audit.siteId) throw new Error("The audit needs a site before failed items can become hazards.");
+      const owners = new Map<string, string>();
+      const ownerIds = [...new Set(items.map((item) => item.assigneeId).filter((value): value is string => Boolean(value)))];
+      if (ownerIds.length) {
+        const profiles = await this.client.from("profiles").select("id, full_name").in("id", ownerIds);
+        for (const row of profiles.data ?? []) owners.set(row.id, row.full_name);
+      }
+      const next: AuditItemResult[] = [];
+      for (const item of items) {
+        if (item.status !== "fail" || item.incidentId) {
+          next.push(item);
+          continue;
+        }
+        const description = [item.title, item.note.trim()].filter(Boolean).join(" — ");
+        const inserted = await this.client
+          .from("incidents")
+          .insert({
+            site_id: audit.siteId,
+            type: "hazard",
+            category: "unclassified",
+            categories: [],
+            severity: "medium",
+            status: "open",
+            description: description.length >= 8 ? description : `${description} (${audit.templateName})`,
+            source: "audit",
+            is_anonymous: false,
+            reporter_name: audit.assigneeName ?? audit.createdByName ?? null,
+            reporter_profile_id: audit.assigneeId,
+            audit_id: audit.id,
+            location: audit.templateName,
+          })
+          .select("id, reference")
+          .single();
+        if (inserted.error) throw inserted.error;
+        if (item.dueDate || item.assigneeId) {
+          const action = await this.client.from("actions").insert({
+            incident_id: inserted.data.id,
+            assignee_id: item.assigneeId,
+            assignee_name: item.assigneeId ? (owners.get(item.assigneeId) ?? "") : "",
+            due_date: item.dueDate,
+            status: "open",
+            notes: `${audit.templateName}: ${item.title}`,
+          });
+          if (action.error) throw action.error;
+        }
+        next.push({
+          ...item,
+          assigneeName: item.assigneeId ? (owners.get(item.assigneeId) ?? null) : null,
+          incidentId: inserted.data.id,
+          incidentReference: inserted.data.reference,
+        });
+      }
+      items = next;
+    }
+
+    const payload: Database["public"]["Tables"]["audits"]["Update"] = {
+      items: items as unknown as Json,
+    };
+    if (patch.status !== undefined) payload.status = patch.status;
+    if (patch.note !== undefined) payload.note = patch.note.trim() || null;
+    if (patch.assigneeId !== undefined) payload.assignee_id = patch.assigneeId;
+    if (patch.dueDate !== undefined) payload.due_date = patch.dueDate;
+    const result = await this.client.from("audits").update(payload).eq("id", id).select(AUDIT_SELECT).single();
+    if (result.error) {
+      const message = (result.error as { message?: string }).message ?? "";
+      if (message.includes("open non-conformities")) throw new Error("AUDIT_OPEN_NONCONFORMITIES");
+      throw result.error;
+    }
+    return mapAudit(result.data as unknown as AuditQueryRow);
   }
 
   async trackIncident(code: string): Promise<TrackedIncident | null> {

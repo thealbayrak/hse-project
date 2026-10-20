@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import {
+  ClipboardCheckIcon,
   ClipboardListIcon,
   ClipboardPlusIcon,
   CloudOffIcon,
@@ -10,6 +11,7 @@ import {
   LayoutDashboardIcon,
   LineChartIcon,
   LogOutIcon,
+  QrCodeIcon,
   ShieldCheckIcon,
   UsersIcon,
 } from "lucide-react";
@@ -29,7 +31,9 @@ const NAV: { href: string; key: string; icon: typeof ShieldCheckIcon; permission
   { href: "/dashboard", key: "nav.dashboard", icon: LayoutDashboardIcon, mobile: true },
   { href: "/tasks", key: "home.tasks", icon: ClipboardListIcon, permission: "tasks.view", mobile: true },
   { href: "/reports", key: "home.reports", icon: LineChartIcon, permission: "reports.view", mobile: true },
+  { href: "/audits", key: "home.audits", icon: ClipboardCheckIcon, permission: "audits.conduct", mobile: false },
   { href: "/people", key: "home.people", icon: UsersIcon, permission: "people.manage", mobile: false },
+  { href: "/projects", key: "home.projects", icon: QrCodeIcon, permission: "projects.manage", mobile: false },
 ];
 
 export function AppShell({

@@ -1,6 +1,10 @@
 import type {
+  Audit,
+  ChecklistTemplate,
   Contact,
+  CreateAuditInput,
   CreateIncidentInput,
+  CreateTemplateInput,
   CreateSafetyWalkInput,
   CreateTaskInput,
   DashboardMetrics,
@@ -15,6 +19,7 @@ import type {
   SitePerson,
   Task,
   TrackedIncident,
+  UpdateAuditInput,
   UpdateCapaInput,
   UpdateTaskInput,
 } from "@/lib/types";
@@ -68,6 +73,15 @@ export interface IncidentRepository {
   listTasks(): Promise<Task[]>;
   createTask(input: CreateTaskInput, createdById: string | null): Promise<Task>;
   updateTask(id: string, patch: UpdateTaskInput): Promise<Task>;
+
+  // Checklist templates and audits
+  listTemplates(): Promise<ChecklistTemplate[]>;
+  createTemplate(input: CreateTemplateInput, createdById: string | null): Promise<ChecklistTemplate>;
+  updateTemplate(id: string, patch: Partial<CreateTemplateInput & { active: boolean }>): Promise<ChecklistTemplate>;
+  listAudits(): Promise<Audit[]>;
+  createAudit(input: CreateAuditInput, createdById: string | null): Promise<Audit>;
+  /** Saves answers; with status "submitted" every failed item becomes a hazard with its due date and owner. */
+  updateAudit(id: string, patch: UpdateAuditInput): Promise<Audit>;
 
   subscribeToIncidents?(handler: RealtimeIncidentHandler): () => void;
 }

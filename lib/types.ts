@@ -1,6 +1,13 @@
-export type IncidentType = "near-miss" | "hazard" | "accident";
+export type IncidentType =
+  | "near-miss"
+  | "hazard"
+  | "accident"
+  | "good-observation"
+  | "positive-observation"
+  | "environmental";
 export type Severity = "low" | "medium" | "high" | "critical";
 export type IncidentStatus = "open" | "in-progress" | "resolved";
+/** Open list; "unclassified" means the reporter left it for the safety team. */
 export type RiskCategory =
   | "falls"
   | "machine"
@@ -8,7 +15,24 @@ export type RiskCategory =
   | "slip-trip"
   | "chemical"
   | "electrical"
-  | "ergonomic";
+  | "ergonomic"
+  | "ppe"
+  | "fire"
+  | "traffic"
+  | "confined-space"
+  | "noise-vibration"
+  | "dust-air"
+  | "housekeeping"
+  | "environment-spill"
+  | "psychosocial"
+  | "other"
+  | "unclassified";
+
+/** Report types that praise good practice rather than flag danger. */
+export const POSITIVE_TYPES: IncidentType[] = ["good-observation", "positive-observation"];
+export function isPositiveType(type: IncidentType) {
+  return POSITIVE_TYPES.includes(type);
+}
 
 export interface SiteLocation {
   id: string;
@@ -48,7 +72,12 @@ export interface Incident {
   locationId: string;
   siteName?: string;
   locationName?: string;
+  /** All areas the reporter marked; `locationId` is the first of them (may be empty). */
+  locationIds?: string[];
+  /** First risk type, or "unclassified" until the safety team assigns one. */
   category: RiskCategory;
+  /** All risk types; empty when not classified yet. */
+  categories?: RiskCategory[];
   severity: Severity;
   description: string;
   mediaUrls: string[];
@@ -76,16 +105,28 @@ export interface Incident {
   status: IncidentStatus;
   createdAt: string;
   capa: CapaAction | null;
-  source?: "report" | "skyddsrond";
+  source?: "report" | "skyddsrond" | "audit";
+  /** Set when a failed checklist item raised this non-conformity. */
+  auditId?: string | null;
   /** True for a report stored on the device while offline; it has no reference yet. */
   pending?: boolean;
+}
+
+/** Every risk type on an incident (legacy rows carry only the single one). */
+export function incidentCategories(incident: Pick<Incident, "category" | "categories">): RiskCategory[] {
+  if (incident.categories?.length) return incident.categories;
+  return incident.category === "unclassified" ? [] : [incident.category];
 }
 
 export interface CreateIncidentInput {
   type: IncidentType;
   siteId: string;
+  /** First area, or "" when the reporter did not pick one. */
   locationId: string;
+  locationIds?: string[];
+  /** First risk type, "unclassified" when none was picked. */
   category: RiskCategory;
+  categories?: RiskCategory[];
   severity: Severity;
   description: string;
   mediaUrls: string[];
@@ -122,6 +163,8 @@ export interface UpdateCapaInput {
   notes: string;
   /** Optional correction of the reporter-derived severity by the safety officer. */
   severity?: Severity;
+  /** Risk types assigned or corrected by the safety officer. */
+  categories?: RiskCategory[];
   /** Short message the reporter can read on /track. */
   publicNote?: string;
 }
@@ -142,8 +185,8 @@ export interface SafetyOfficer {
 export interface ReportDraft {
   type: IncidentType | null;
   siteId: string;
-  locationId: string;
-  category: RiskCategory | null;
+  locationIds: string[];
+  categories: RiskCategory[];
   severity: Severity | null;
   description: string;
   mediaUrls: string[];
@@ -246,9 +289,9 @@ export interface MeetingInviteInput {
 }
 
 /** Roles decide who is told about what and which screens a person sees. */
-export type Role = "worker" | "foreman" | "safety_officer" | "hse_manager" | "admin";
+export type Role = "worker" | "foreman" | "safety_officer" | "hse_manager" | "admin" | "super_admin";
 
-export const ROLES: Role[] = ["worker", "foreman", "safety_officer", "hse_manager", "admin"];
+export const ROLES: Role[] = ["worker", "foreman", "safety_officer", "hse_manager", "admin", "super_admin"];
 
 export interface Profile {
   id: string;
@@ -256,6 +299,8 @@ export interface Profile {
   email: string | null;
   phone: string | null;
   role: Role;
+  /** Tenant. People, reports and tasks are only visible inside it (super admins see all). */
+  organizationId?: string | null;
   siteId: string | null;
   siteName?: string | null;
   employeeNo: string | null;
@@ -325,6 +370,87 @@ export interface UpdateTaskInput {
   assigneeId?: string | null;
   dueDate?: string | null;
   priority?: TaskPriority;
+}
+
+// ---------------------------------------------------------------------------
+// Checklist templates and audits
+// ---------------------------------------------------------------------------
+
+export interface ChecklistItem {
+  key: string;
+  title: string;
+  hint?: string;
+}
+
+export interface ChecklistTemplate {
+  id: string;
+  name: string;
+  description: string;
+  items: ChecklistItem[];
+  active: boolean;
+  createdById: string | null;
+  createdAt: string;
+}
+
+export interface CreateTemplateInput {
+  name: string;
+  description: string;
+  items: ChecklistItem[];
+}
+
+export type AuditStatus = "assigned" | "in-progress" | "submitted" | "done" | "cancelled";
+export type AuditItemStatus = "ok" | "fail" | "na";
+
+/** One checklist line as answered during the inspection. */
+export interface AuditItemResult {
+  key: string;
+  title: string;
+  status: AuditItemStatus | null;
+  note: string;
+  /** For a failed item: when it must be fixed and by whom. */
+  dueDate: string | null;
+  assigneeId: string | null;
+  assigneeName?: string | null;
+  /** The non-conformity raised in the hazard list, once submitted. */
+  incidentId: string | null;
+  incidentReference?: string | null;
+  incidentStatus?: IncidentStatus | null;
+}
+
+export interface Audit {
+  id: string;
+  templateId: string | null;
+  templateName: string;
+  siteId: string | null;
+  siteName?: string | null;
+  assigneeId: string | null;
+  assigneeName?: string | null;
+  createdById: string | null;
+  createdByName?: string | null;
+  dueDate: string | null;
+  status: AuditStatus;
+  items: AuditItemResult[];
+  note: string;
+  submittedAt: string | null;
+  completedAt: string | null;
+  createdAt: string;
+  /** Failed items whose hazard is still open; the audit cannot close while > 0. */
+  openNonConformities: number;
+}
+
+export interface CreateAuditInput {
+  templateId: string;
+  siteId: string | null;
+  assigneeId: string | null;
+  dueDate: string | null;
+}
+
+export interface UpdateAuditInput {
+  status?: AuditStatus;
+  items?: AuditItemResult[];
+  note?: string;
+  assigneeId?: string | null;
+  dueDate?: string | null;
 }
 
 export interface NearbyPlace {

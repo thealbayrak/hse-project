@@ -1,7 +1,8 @@
 "use client";
 
 import { useState } from "react";
-import { CalendarPlusIcon, FileText, Loader2Icon, SparklesIcon } from "lucide-react";
+import { CalendarPlusIcon, DownloadIcon, FileText, Loader2Icon, SparklesIcon } from "lucide-react";
+import { downloadIncidentPdf } from "@/lib/export";
 import { toast } from "sonner";
 import { AmlNoticeDialog } from "@/components/dashboard/aml-notice-dialog";
 import { MeetingDialog } from "@/components/dashboard/meeting-dialog";
@@ -18,8 +19,9 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { DEFAULT_REPORTER_NAME, INCIDENT_STATUSES, SAFETY_OFFICERS, SEVERITY_LEVELS } from "@/lib/constants";
+import { DEFAULT_REPORTER_NAME, INCIDENT_STATUSES, RISK_CATEGORIES, SAFETY_OFFICERS, SEVERITY_LEVELS } from "@/lib/constants";
 import {
+  categoriesLabel,
   categoryLabel,
   formatDateTime,
   placeLabel,
@@ -32,7 +34,7 @@ import { addBusinessDaysIsoDate } from "@/lib/skyddsrond/business-days";
 import { useIncidentStore } from "@/lib/store/incident-store";
 import { cn } from "@/lib/utils";
 import { panelClass, severityClass, statusClass } from "@/lib/tones";
-import type { Incident, IncidentStatus, Severity } from "@/lib/types";
+import { incidentCategories, type Incident, type IncidentStatus, type RiskCategory, type Severity } from "@/lib/types";
 
 export function IncidentDetailDialog({
   incident,
@@ -60,6 +62,7 @@ function IncidentDetail({ incident, onClose }: { incident: Incident; onClose: ()
   const [dueDate, setDueDate] = useState(() => incident.capa?.dueDate || defaultDueDate());
   const [status, setStatus] = useState<IncidentStatus>(() => incident.capa?.status ?? incident.status);
   const [severity, setSeverity] = useState<Severity>(incident.severity);
+  const [categories, setCategories] = useState<RiskCategory[]>(() => incidentCategories(incident));
   const [notes, setNotes] = useState(() => incident.capa?.notes ?? "");
   const [publicNote, setPublicNote] = useState(() => incident.publicNote ?? "");
   const [saving, setSaving] = useState(false);
@@ -82,6 +85,7 @@ function IncidentDetail({ incident, onClose }: { incident: Incident; onClose: ()
         status,
         notes: notes.trim(),
         severity: severity !== incident.severity ? severity : undefined,
+        categories: categories.join() !== incidentCategories(incident).join() ? categories : undefined,
         publicNote: publicNote.trim() !== (incident.publicNote ?? "") ? publicNote : undefined,
       });
       toast.success(t("toast.capaSaved"));
@@ -110,9 +114,17 @@ function IncidentDetail({ incident, onClose }: { incident: Incident; onClose: ()
         <span className={cn("rounded-full border px-2.5 py-1 text-xs font-medium", statusClass[incident.status])}>
           {statusLabel(incident.status, locale)}
         </span>
-        <span className="rounded-full border border-border px-2.5 py-1 text-xs">
-          {categoryLabel(incident.category, locale)}
+        <span
+          className={cn(
+            "rounded-full border px-2.5 py-1 text-xs",
+            incidentCategories(incident).length ? "border-border" : "border-amber-500/50 text-amber-700 dark:text-amber-300"
+          )}
+        >
+          {categoriesLabel(incidentCategories(incident), locale)}
         </span>
+        {incident.source === "audit" && (
+          <span className="rounded-full border border-border px-2.5 py-1 text-xs">{t("audits.fromAudit")}</span>
+        )}
         <span className="rounded-full border border-border px-2.5 py-1 text-xs">
           {incident.anonymous
             ? t("report.anonymousPerson")
@@ -216,6 +228,29 @@ function IncidentDetail({ incident, onClose }: { incident: Incident; onClose: ()
             <p className="text-xs text-muted-foreground">{t("dashboard.severityHint")}</p>
           </div>
           <div className="space-y-2 sm:col-span-2">
+            <Label>{t("dashboard.categoriesLabel")}</Label>
+            <div className="flex flex-wrap gap-1.5">
+              {RISK_CATEGORIES.map((item) => {
+                const active = categories.includes(item.id);
+                return (
+                  <button
+                    key={item.id}
+                    type="button"
+                    aria-pressed={active}
+                    onClick={() => setCategories((current) => (active ? current.filter((id) => id !== item.id) : [...current, item.id]))}
+                    className={cn(
+                      "min-h-10 rounded-full border px-3 text-xs font-medium",
+                      active ? "border-amber-500 bg-amber-500 text-slate-950" : "border-border bg-background text-muted-foreground"
+                    )}
+                  >
+                    {categoryLabel(item.id, locale)}
+                  </button>
+                );
+              })}
+            </div>
+            <p className="text-xs text-muted-foreground">{t("dashboard.categoriesHint")}</p>
+          </div>
+          <div className="space-y-2 sm:col-span-2">
             <Label htmlFor="assignee">{t("dashboard.assignee")}</Label>
             <div className="grid gap-2 sm:grid-cols-2">
               {SAFETY_OFFICERS.map((officer) => (
@@ -290,6 +325,14 @@ function IncidentDetail({ incident, onClose }: { incident: Incident; onClose: ()
       </div>
 
       <DialogFooter>
+        <Button
+          variant="outline"
+          className="h-12 gap-2"
+          onClick={() => void downloadIncidentPdf(incident, locale).catch(() => toast.error(t("toast.exportFailed")))}
+        >
+          <DownloadIcon className="size-4" />
+          {t("buttons.downloadPdf")}
+        </Button>
         <Button variant="outline" className="h-12" onClick={onClose}>
           {t("buttons.close")}
         </Button>

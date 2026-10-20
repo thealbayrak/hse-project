@@ -34,10 +34,29 @@ export const INCIDENT_TYPES: {
     swedish: "Olycka",
     hint: "Someone was hurt",
   },
+  {
+    id: "environmental",
+    label: "Environmental Incident",
+    swedish: "Miljöhändelse",
+    hint: "Spill, emission or waste problem",
+  },
+  {
+    id: "good-observation",
+    label: "Good Observation",
+    swedish: "Bra observation",
+    hint: "Something worth sharing",
+  },
+  {
+    id: "positive-observation",
+    label: "Positive Observation",
+    swedish: "Positiv observation",
+    hint: "Safe behaviour to recognise",
+  },
 ];
 
+/** Selectable risk types (open list; "unclassified" is never offered, it is the empty state). */
 export const RISK_CATEGORIES: {
-  id: RiskCategory;
+  id: Exclude<RiskCategory, "unclassified">;
   label: string;
 }[] = [
   { id: "falls", label: "Falls from height" },
@@ -47,6 +66,16 @@ export const RISK_CATEGORIES: {
   { id: "chemical", label: "Chemical" },
   { id: "electrical", label: "Electrical" },
   { id: "ergonomic", label: "Ergonomic" },
+  { id: "ppe", label: "PPE" },
+  { id: "fire", label: "Fire / Hot work" },
+  { id: "traffic", label: "Traffic / Vehicles" },
+  { id: "confined-space", label: "Confined space" },
+  { id: "noise-vibration", label: "Noise / Vibration" },
+  { id: "dust-air", label: "Dust / Air quality" },
+  { id: "housekeeping", label: "Housekeeping / Order" },
+  { id: "environment-spill", label: "Environment / Spill" },
+  { id: "psychosocial", label: "Psychosocial" },
+  { id: "other", label: "Other" },
 ];
 
 export const SEVERITY_LEVELS: {

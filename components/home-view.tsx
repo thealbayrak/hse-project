@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import {
+  ClipboardCheckIcon,
   ClipboardListIcon,
   ClipboardPlusIcon,
   EyeOffIcon,
@@ -10,6 +11,7 @@ import {
   LineChartIcon,
   LogInIcon,
   MicIcon,
+  QrCodeIcon,
   SearchCheckIcon,
   ShieldCheckIcon,
   UsersIcon,
@@ -28,7 +30,9 @@ const STAFF_LINKS: { href: string; permission: Permission; titleKey: string; hin
   { href: "/dashboard", permission: "dashboard.view", titleKey: "home.dashboard", hintKey: "home.dashboardHint", icon: LayoutDashboardIcon },
   { href: "/tasks", permission: "tasks.view", titleKey: "home.tasks", hintKey: "home.tasksHint", icon: ClipboardListIcon },
   { href: "/reports", permission: "reports.view", titleKey: "home.reports", hintKey: "home.reportsHint", icon: LineChartIcon },
+  { href: "/audits", permission: "audits.conduct", titleKey: "home.audits", hintKey: "home.auditsHint", icon: ClipboardCheckIcon },
   { href: "/people", permission: "people.manage", titleKey: "home.people", hintKey: "home.peopleHint", icon: UsersIcon },
+  { href: "/projects", permission: "projects.manage", titleKey: "home.projects", hintKey: "home.projectsHint", icon: QrCodeIcon },
 ];
 
 export function HomeView() {

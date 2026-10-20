@@ -5,7 +5,7 @@ import type { IncidentAnalysis, IncidentType, RiskCategory, Severity } from "@/l
 
 const MODEL = process.env.GEMINI_MODEL || "gemini-2.5-flash";
 
-const INCIDENT_TYPES: IncidentType[] = ["near-miss", "hazard", "accident"];
+const INCIDENT_TYPES: IncidentType[] = ["near-miss", "hazard", "accident", "environmental", "good-observation", "positive-observation"];
 const CATEGORIES: RiskCategory[] = [
   "falls",
   "machine",
@@ -14,6 +14,16 @@ const CATEGORIES: RiskCategory[] = [
   "chemical",
   "electrical",
   "ergonomic",
+  "ppe",
+  "fire",
+  "traffic",
+  "confined-space",
+  "noise-vibration",
+  "dust-air",
+  "housekeeping",
+  "environment-spill",
+  "psychosocial",
+  "other",
 ];
 const SEVERITIES: Severity[] = ["low", "medium", "high", "critical"];
 
@@ -25,8 +35,8 @@ Tasks:
 2. originalLanguage: the ISO 639-1 code of that language.
 3. summarySv: 1-2 neutral, factual Swedish sentences for the safety organisation (skyddsorganisationen). No names, no guesses, no advice.
 4. summaryEn: the same summary in English.
-5. type: "accident" if someone was injured; "near-miss" (tillbud) if something almost caused injury; "hazard" if the worker only observed a dangerous condition. "unknown" if unclear.
-6. category: the main risk - falls (from height), machine (machinery/equipment), falling-objects, slip-trip, chemical, electrical, ergonomic. "unknown" if unclear.
+5. type: "accident" if someone was injured; "near-miss" (tillbud) if something almost caused injury; "hazard" if the worker only observed a dangerous condition; "environmental" for a spill, emission, leak or waste problem; "good-observation" or "positive-observation" if the worker praises good practice or safe behaviour and nothing went wrong. "unknown" if unclear.
+6. category: the main risk - falls (from height), machine (machinery/equipment), falling-objects, slip-trip, chemical, electrical, ergonomic, ppe (missing protective equipment), fire (fire/hot work), traffic (vehicles), confined-space, noise-vibration, dust-air, housekeeping (order/cleanliness), environment-spill, psychosocial (stress/harassment), other. "unknown" if unclear.
 7. hurt: "yes" if anyone was injured, "no" if clearly not, "unknown" if not said.
 8. danger: "yes" if the dangerous condition still exists, "no" if it was removed/made safe, "unknown" if not said.
 9. siteId / locationId: if the worker names a site or an area that matches one in the provided list (names may be said in another language or abbreviated), return its id, otherwise "unknown".

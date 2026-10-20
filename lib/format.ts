@@ -2,14 +2,27 @@ import { findLocation, findSite } from "@/lib/data/sites";
 import { LOCALE_TAGS, translate, type Locale } from "@/lib/i18n/translations";
 import type { Incident, IncidentStatus, IncidentType, RiskCategory, Severity } from "@/lib/types";
 
+const TYPE_KEY: Record<IncidentType, string> = {
+  "near-miss": "incident.nearMiss",
+  hazard: "incident.hazard",
+  accident: "incident.accident",
+  "good-observation": "incident.goodObservation",
+  "positive-observation": "incident.positiveObservation",
+  environmental: "incident.environmental",
+};
+
 export function typeLabel(type: IncidentType, locale: Locale = "en") {
-  if (type === "near-miss") return translate(locale, "incident.nearMiss");
-  if (type === "hazard") return translate(locale, "incident.hazard");
-  return translate(locale, "incident.accident");
+  return translate(locale, TYPE_KEY[type] ?? "incident.hazard");
 }
 
 export function categoryLabel(category: RiskCategory, locale: Locale = "en") {
   return translate(locale, `category.${category}`);
+}
+
+/** All risk types of an incident as one label; "not classified" when empty. */
+export function categoriesLabel(categories: RiskCategory[], locale: Locale = "en") {
+  if (!categories.length) return translate(locale, "category.unclassified");
+  return categories.map((category) => categoryLabel(category, locale)).join(", ");
 }
 
 export function severityLabel(severity: Severity, locale: Locale = "en") {

@@ -4,7 +4,19 @@ import { SEED_INCIDENTS } from "@/lib/data/seed-incidents";
 import { SEED_SAFETY_WALKS } from "@/lib/data/seed-walks";
 import { findLocation, findSite, SITES } from "@/lib/data/sites";
 import { toSafetyWalkSummary } from "@/lib/supabase/mappers";
-import type { Contact, CreateIncidentInput, CreateSafetyWalkInput, Incident, Profile, SafetyWalk, Task, UpdateCapaInput } from "@/lib/types";
+import type {
+  Audit,
+  AuditItemResult,
+  ChecklistTemplate,
+  Contact,
+  CreateIncidentInput,
+  CreateSafetyWalkInput,
+  Incident,
+  Profile,
+  SafetyWalk,
+  Task,
+  UpdateCapaInput,
+} from "@/lib/types";
 
 function withPlaceNames(incident: Incident): Incident {
   return {
@@ -70,6 +82,24 @@ export function createMockRepository(): IncidentRepository {
     { id: "task-1", title: "Zone 3 scaffold tag renewal", description: "Arrange re-inspection and new tag before Monday.", priority: "high", status: "open", assigneeId: "p-johan", assigneeName: "Johan Ek", createdById: "p-erik", createdByName: "Erik Lindqvist", siteId: "site-kvillebacken", incidentId: null, incidentReference: null, dueDate: "2026-10-20", feedback: "", completedAt: null, createdAt: "2026-10-15T08:00:00.000Z", updatedAt: null },
   ];
   const profileName = (id: string | null) => profiles.find((p) => p.id === id)?.fullName ?? null;
+  let templates: ChecklistTemplate[] = [
+    {
+      id: "tpl-gas",
+      name: "Gas cylinder check",
+      description: "Weekly check of stored and in-use gas cylinders.",
+      items: [
+        { key: "secured", title: "Cylinders secured upright with chain or strap" },
+        { key: "caps", title: "Valve caps fitted on cylinders not in use" },
+        { key: "hoses", title: "Hoses and regulators free of damage" },
+        { key: "flashback", title: "Flashback arrestors fitted" },
+        { key: "signage", title: "Storage area signed and ventilated" },
+      ],
+      active: true,
+      createdById: "p-erik",
+      createdAt: "2026-10-10T08:00:00.000Z",
+    },
+  ];
+  let audits: Audit[] = [];
 
   return {
     async listSites() {
@@ -86,13 +116,23 @@ export function createMockRepository(): IncidentRepository {
     },
 
     async createIncident(input: CreateIncidentInput) {
+      const locationIds = input.locationIds ?? (input.locationId ? [input.locationId] : []);
+      const categories = (input.categories ?? (input.category === "unclassified" ? [] : [input.category])).filter(
+        (category) => category !== "unclassified"
+      );
+      const site = findSite(input.siteId);
+      const locationNames = locationIds.map((id) => findLocation(input.siteId, id)?.name).filter(Boolean) as string[];
       const created: Incident = {
         id: `inc-${crypto.randomUUID().slice(0, 8)}`,
         reference: nextReference(incidents),
         type: input.type,
         siteId: input.siteId,
-        locationId: input.locationId,
-        category: input.category,
+        locationId: locationIds[0] ?? "",
+        locationIds,
+        siteName: site?.name,
+        locationName: locationNames.length ? locationNames.join(", ") : site?.name,
+        category: categories[0] ?? "unclassified",
+        categories,
         severity: input.severity,
         description: input.description,
         mediaUrls: input.mediaUrls,
@@ -122,11 +162,13 @@ export function createMockRepository(): IncidentRepository {
         throw new Error(`Incident ${incidentId} not found`);
       }
 
-      const { severity, publicNote, ...capaFields } = capa;
+      const { severity, publicNote, categories, ...capaFields } = capa;
+      const cleanCategories = categories?.filter((category) => category !== "unclassified");
       const updated: Incident = {
         ...incidents[index],
         status: capa.status,
         severity: severity ?? incidents[index].severity,
+        ...(cleanCategories ? { categories: cleanCategories, category: cleanCategories[0] ?? "unclassified" } : {}),
         publicNote: publicNote !== undefined ? publicNote.trim() || null : incidents[index].publicNote,
         capa: {
           ...capaFields,
@@ -298,6 +340,133 @@ export function createMockRepository(): IncidentRepository {
         updatedAt: new Date().toISOString(),
       };
       tasks[index] = updated;
+      return structuredClone(updated);
+    },
+
+    async listTemplates() {
+      return structuredClone(templates);
+    },
+
+    async createTemplate(input, createdById) {
+      const template: ChecklistTemplate = {
+        id: `tpl-${crypto.randomUUID().slice(0, 8)}`,
+        name: input.name.trim(),
+        description: input.description.trim(),
+        items: input.items,
+        active: true,
+        createdById,
+        createdAt: new Date().toISOString(),
+      };
+      templates = [...templates, template];
+      return structuredClone(template);
+    },
+
+    async updateTemplate(id, patch) {
+      const index = templates.findIndex((t) => t.id === id);
+      if (index === -1) throw new Error(`Template ${id} not found`);
+      const updated: ChecklistTemplate = {
+        ...templates[index],
+        name: patch.name !== undefined ? patch.name.trim() : templates[index].name,
+        description: patch.description !== undefined ? patch.description.trim() : templates[index].description,
+        items: patch.items ?? templates[index].items,
+        active: patch.active ?? templates[index].active,
+      };
+      templates[index] = updated;
+      return structuredClone(updated);
+    },
+
+    async listAudits() {
+      return structuredClone(
+        audits.map((audit) => ({
+          ...audit,
+          items: audit.items.map((item) => ({
+            ...item,
+            incidentStatus: item.incidentId ? (incidents.find((i) => i.id === item.incidentId)?.status ?? null) : null,
+          })),
+          openNonConformities: incidents.filter((i) => i.auditId === audit.id && i.status !== "resolved").length,
+        }))
+      );
+    },
+
+    async createAudit(input, createdById) {
+      const template = templates.find((t) => t.id === input.templateId);
+      if (!template) throw new Error("Template not found");
+      const audit: Audit = {
+        id: `audit-${crypto.randomUUID().slice(0, 8)}`,
+        templateId: template.id,
+        templateName: template.name,
+        siteId: input.siteId,
+        siteName: input.siteId ? (findSite(input.siteId)?.name ?? null) : null,
+        assigneeId: input.assigneeId,
+        assigneeName: profileName(input.assigneeId),
+        createdById,
+        createdByName: profileName(createdById),
+        dueDate: input.dueDate,
+        status: "assigned",
+        items: template.items.map((item) => ({ key: item.key, title: item.title, status: null, note: "", dueDate: null, assigneeId: null, incidentId: null })),
+        note: "",
+        submittedAt: null,
+        completedAt: null,
+        createdAt: new Date().toISOString(),
+        openNonConformities: 0,
+      };
+      audits = [audit, ...audits];
+      return structuredClone(audit);
+    },
+
+    async updateAudit(id, patch) {
+      const index = audits.findIndex((a) => a.id === id);
+      if (index === -1) throw new Error(`Audit ${id} not found`);
+      const current = audits[index];
+      let items: AuditItemResult[] = patch.items ?? current.items;
+      if (patch.status === "submitted") {
+        if (!current.siteId) throw new Error("The audit needs a site before failed items can become hazards.");
+        items = items.map((item) => {
+          if (item.status !== "fail" || item.incidentId) return item;
+          const hazard: Incident = {
+            id: `inc-${crypto.randomUUID().slice(0, 8)}`,
+            reference: nextReference(incidents),
+            type: "hazard",
+            siteId: current.siteId!,
+            locationId: "",
+            locationIds: [],
+            category: "unclassified",
+            categories: [],
+            severity: "medium",
+            description: [item.title, item.note.trim()].filter(Boolean).join(" — "),
+            mediaUrls: [],
+            anonymous: false,
+            reporterName: current.assigneeName ?? current.createdByName ?? null,
+            reporterProfileId: current.assigneeId,
+            status: "open",
+            createdAt: new Date().toISOString(),
+            capa:
+              item.dueDate || item.assigneeId
+                ? { assigneeId: item.assigneeId ?? "", assigneeName: profileName(item.assigneeId) ?? "", dueDate: item.dueDate ?? "", status: "open", notes: `${current.templateName}: ${item.title}`, updatedAt: new Date().toISOString() }
+                : null,
+            source: "audit",
+            auditId: current.id,
+          };
+          incidents = [hazard, ...incidents];
+          return { ...item, assigneeName: profileName(item.assigneeId), incidentId: hazard.id, incidentReference: hazard.reference, incidentStatus: "open" as const };
+        });
+      }
+      const openCount = incidents.filter((i) => i.auditId === id && i.status !== "resolved").length;
+      if (patch.status === "done" && openCount > 0) throw new Error("AUDIT_OPEN_NONCONFORMITIES");
+      const status = patch.status ?? current.status;
+      const updated: Audit = {
+        ...current,
+        items,
+        status,
+        note: patch.note !== undefined ? patch.note.trim() : current.note,
+        assigneeId: patch.assigneeId !== undefined ? patch.assigneeId : current.assigneeId,
+        assigneeName: patch.assigneeId !== undefined ? profileName(patch.assigneeId) : current.assigneeName,
+        dueDate: patch.dueDate !== undefined ? patch.dueDate : current.dueDate,
+        submittedAt: status === "submitted" || status === "done" ? (current.submittedAt ?? new Date().toISOString()) : current.submittedAt,
+        completedAt: status === "done" ? (current.completedAt ?? new Date().toISOString()) : null,
+        openNonConformities: openCount,
+      };
+      audits[index] = updated;
       return structuredClone(updated);
     },
 

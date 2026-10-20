@@ -1,6 +1,7 @@
 import type {
   ActionRow,
   AttachmentRow,
+  AuditRow,
   IncidentRow,
   LocationRow,
   OrganizationRow,
@@ -9,9 +10,15 @@ import type {
   SafetyWalkRow,
   SiteRow,
   TaskRow,
+  TemplateRow,
 } from "@/lib/supabase/database.types";
 import type {
+  Audit,
+  AuditItemResult,
+  AuditStatus,
   CapaAction,
+  ChecklistItem,
+  ChecklistTemplate,
   Contact,
   Incident,
   IncidentAnalysis,
@@ -58,6 +65,13 @@ export interface TaskQueryRow extends TaskRow {
   incidents?: Nested<Pick<IncidentRow, "id" | "reference">>;
 }
 
+export interface AuditQueryRow extends AuditRow {
+  sites?: Nested<Pick<SiteRow, "id" | "name">>;
+  assignee?: Nested<Pick<ProfileRow, "id" | "full_name">>;
+  creator?: Nested<Pick<ProfileRow, "id" | "full_name">>;
+  incidents?: Nested<Pick<IncidentRow, "id" | "reference" | "status">>;
+}
+
 export interface SafetyWalkQueryRow extends SafetyWalkRow {
   sites?: Nested<Pick<SiteRow, "id" | "name">>;
   safety_walk_items?: Nested<SafetyWalkItemRow>;
@@ -84,7 +98,39 @@ export function mapIncidentType(value: string): IncidentType {
   if (normalized === "hazard" || normalized === "risk" || normalized === "hazard-observation") {
     return "hazard";
   }
+  if (normalized === "good-observation") return "good-observation";
+  if (normalized === "positive-observation") return "positive-observation";
+  if (normalized === "environmental" || normalized === "environmental-incident") return "environmental";
   return "accident";
+}
+
+const KNOWN_CATEGORIES: RiskCategory[] = [
+  "falls",
+  "machine",
+  "falling-objects",
+  "slip-trip",
+  "chemical",
+  "electrical",
+  "ergonomic",
+  "ppe",
+  "fire",
+  "traffic",
+  "confined-space",
+  "noise-vibration",
+  "dust-air",
+  "housekeeping",
+  "environment-spill",
+  "psychosocial",
+  "other",
+  "unclassified",
+];
+
+export function mapCategories(values: unknown): RiskCategory[] {
+  if (!Array.isArray(values)) return [];
+  return values
+    .filter((value): value is string => typeof value === "string")
+    .map((value) => mapCategory(value))
+    .filter((value) => value !== "unclassified");
 }
 
 export function mapSeverity(value: string): Severity {
@@ -102,18 +148,11 @@ export function mapStatus(value: string): IncidentStatus {
   return "open";
 }
 
-export function mapCategory(value: string): RiskCategory {
-  const normalized = value.trim().toLowerCase().replaceAll("_", "-");
-  const allowed: RiskCategory[] = [
-    "falls",
-    "machine",
-    "falling-objects",
-    "slip-trip",
-    "chemical",
-    "electrical",
-    "ergonomic",
-  ];
-  return allowed.includes(normalized as RiskCategory) ? (normalized as RiskCategory) : "machine";
+/** Unknown values are kept as "other" so nothing is silently re-labelled as a machine risk. */
+export function mapCategory(value: string | null | undefined): RiskCategory {
+  const normalized = (value ?? "").trim().toLowerCase().replaceAll("_", "-");
+  if (!normalized) return "unclassified";
+  return KNOWN_CATEGORIES.includes(normalized as RiskCategory) ? (normalized as RiskCategory) : "other";
 }
 
 export function mapCapa(row: ActionRow | null): CapaAction | null {
@@ -148,7 +187,9 @@ export function mapIncident(row: IncidentQueryRow, mediaUrl: MediaUrlResolver = 
     locationId: row.location_id ?? location?.id ?? "",
     siteName: site?.name,
     locationName: location?.name ?? row.location ?? undefined,
-    category: mapCategory(row.category),
+    locationIds: Array.isArray(row.location_ids) && row.location_ids.length ? row.location_ids : row.location_id ? [row.location_id] : [],
+    category: mapCategories(row.categories)[0] ?? mapCategory(row.category),
+    categories: mapCategories(row.categories).length ? mapCategories(row.categories) : mapCategory(row.category) === "unclassified" ? [] : [mapCategory(row.category)],
     severity: mapSeverity(row.severity),
     description: row.description,
     mediaUrls: attachments
@@ -172,7 +213,13 @@ export function mapIncident(row: IncidentQueryRow, mediaUrl: MediaUrlResolver = 
     status: mapStatus(row.status),
     createdAt: row.created_at,
     capa: mapCapa(actions[0] ?? null),
-    source: row.source === "skyddsrond" || (row.reference ?? "").startsWith("SR-") ? "skyddsrond" : "report",
+    source:
+      row.source === "audit"
+        ? "audit"
+        : row.source === "skyddsrond" || (row.reference ?? "").startsWith("SR-")
+          ? "skyddsrond"
+          : "report",
+    auditId: row.audit_id ?? null,
   };
 }
 
@@ -206,8 +253,107 @@ export function mapRole(value: string): Role {
   if (normalized === "foreman" || normalized === "supervisor" || normalized === "arbetsledare" || normalized === "şef" || normalized === "sef") return "foreman";
   if (normalized === "safety_officer" || normalized === "skyddsombud" || normalized === "officer" || normalized === "isg_uzmani" || normalized === "isg_uzmanı") return "safety_officer";
   if (normalized === "hse_manager" || normalized === "manager" || normalized === "arbetsmiljöchef" || normalized === "isg_muduru" || normalized === "isg_müdürü") return "hse_manager";
+  if (normalized === "super_admin" || normalized === "superadmin" || normalized === "süper_admin" || normalized === "superadministrator") return "super_admin";
   if (normalized === "admin" || normalized === "administrator") return "admin";
   return "worker";
+}
+
+// ---------------------------------------------------------------------------
+// Checklist templates and audits
+// ---------------------------------------------------------------------------
+
+export function mapChecklistItems(value: unknown): ChecklistItem[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .map((item, index): ChecklistItem | null => {
+      if (!item || typeof item !== "object") return null;
+      const record = item as Record<string, unknown>;
+      const title = typeof record.title === "string" ? record.title.trim() : "";
+      if (!title) return null;
+      return {
+        key: typeof record.key === "string" && record.key ? record.key : `item-${index + 1}`,
+        title,
+        hint: typeof record.hint === "string" && record.hint ? record.hint : undefined,
+      };
+    })
+    .filter((item): item is ChecklistItem => item !== null);
+}
+
+export function mapTemplate(row: TemplateRow): ChecklistTemplate {
+  return {
+    id: row.id,
+    name: row.name,
+    description: row.description ?? "",
+    items: mapChecklistItems(row.items),
+    active: row.active,
+    createdById: row.created_by,
+    createdAt: row.created_at,
+  };
+}
+
+export function mapAuditStatus(value: string): AuditStatus {
+  const normalized = value.trim().toLowerCase().replaceAll("_", "-");
+  if (normalized === "in-progress") return "in-progress";
+  if (normalized === "submitted") return "submitted";
+  if (normalized === "done" || normalized === "completed") return "done";
+  if (normalized === "cancelled" || normalized === "canceled") return "cancelled";
+  return "assigned";
+}
+
+export function mapAuditItems(value: unknown): AuditItemResult[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .map((item, index): AuditItemResult | null => {
+      if (!item || typeof item !== "object") return null;
+      const record = item as Record<string, unknown>;
+      const title = typeof record.title === "string" ? record.title : "";
+      if (!title) return null;
+      const status = record.status === "ok" || record.status === "fail" || record.status === "na" ? record.status : null;
+      return {
+        key: typeof record.key === "string" && record.key ? record.key : `item-${index + 1}`,
+        title,
+        status,
+        note: typeof record.note === "string" ? record.note : "",
+        dueDate: typeof record.dueDate === "string" && record.dueDate ? record.dueDate : null,
+        assigneeId: typeof record.assigneeId === "string" && record.assigneeId ? record.assigneeId : null,
+        assigneeName: typeof record.assigneeName === "string" ? record.assigneeName : null,
+        incidentId: typeof record.incidentId === "string" && record.incidentId ? record.incidentId : null,
+        incidentReference: typeof record.incidentReference === "string" ? record.incidentReference : null,
+        incidentStatus: null,
+      };
+    })
+    .filter((item): item is AuditItemResult => item !== null);
+}
+
+export function mapAudit(row: AuditQueryRow): Audit {
+  const site = unwrapOne(row.sites);
+  const assignee = unwrapOne(row.assignee);
+  const creator = unwrapOne(row.creator);
+  const linked = unwrapMany(row.incidents);
+  const statusById = new Map(linked.map((incident) => [incident.id, mapStatus(incident.status)]));
+  const items = mapAuditItems(row.items).map((item) => ({
+    ...item,
+    incidentStatus: item.incidentId ? (statusById.get(item.incidentId) ?? null) : null,
+  }));
+  return {
+    id: row.id,
+    templateId: row.template_id,
+    templateName: row.template_name,
+    siteId: row.site_id,
+    siteName: site?.name ?? null,
+    assigneeId: row.assignee_id,
+    assigneeName: assignee?.full_name ?? null,
+    createdById: row.created_by,
+    createdByName: creator?.full_name ?? null,
+    dueDate: row.due_date,
+    status: mapAuditStatus(row.status),
+    items,
+    note: row.note ?? "",
+    submittedAt: row.submitted_at,
+    completedAt: row.completed_at,
+    createdAt: row.created_at,
+    openNonConformities: linked.filter((incident) => mapStatus(incident.status) !== "resolved").length,
+  };
 }
 
 export function mapProfile(row: ProfileQueryRow): Profile {
@@ -219,6 +365,7 @@ export function mapProfile(row: ProfileQueryRow): Profile {
     email: row.email,
     phone: row.phone,
     role: mapRole(row.role),
+    organizationId: row.organization_id,
     siteId: row.site_id,
     siteName: site?.name ?? null,
     employeeNo: row.employee_no,
