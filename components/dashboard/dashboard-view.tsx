@@ -26,6 +26,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { StatutoryBanner } from "@/components/layout/statutory-banner";
+import { AiReportButton } from "@/components/ai/ai-report-dialog";
 import { IncidentBoard } from "@/components/dashboard/incident-board";
 import { IncidentDetailDialog } from "@/components/dashboard/incident-detail-dialog";
 import { LatestSkyddsrondCard } from "@/components/dashboard/latest-skyddsrond-card";
@@ -193,8 +194,11 @@ export function DashboardView() {
   // Types offered in the type filter depend on the tab.
   const typeOptions: IncidentType[] = tab === "accidents" ? ["accident"] : tab === "audits" ? ["hazard", "near-miss", "environmental"] : OBSERVATION_TYPES;
   const categoryOptions = useMemo(() => {
+    // Built-in risk types first (in their usual order), then each company's own.
     const used = new Set(inTab.flatMap((incident) => incidentCategories(incident)));
-    return RISK_CATEGORIES.filter((item) => used.has(item.id)).map((item) => item.id);
+    const builtIn = RISK_CATEGORIES.filter((item) => used.has(item.id)).map((item) => item.id as string);
+    const own = [...used].filter((value) => !builtIn.includes(value) && value !== "unclassified").sort();
+    return [...builtIn, ...own];
   }, [inTab]);
 
   async function exportXlsx() {
@@ -356,6 +360,11 @@ export function DashboardView() {
               </button>
             ))}
           </div>
+          <AiReportButton
+            className="col-span-2 sm:col-span-1"
+            incidents={filtered}
+            scope={[t(`dashboard.tab_${tab}`), filters.from || filters.to ? `${filters.from || "…"} – ${filters.to || "…"}` : null].filter(Boolean).join(" · ")}
+          />
           <Button className="h-12" variant="outline" onClick={() => void exportXlsx()} disabled={!filtered.length}>
             <FileSpreadsheetIcon className="size-4" />
             {t("buttons.exportXlsx")}
@@ -546,7 +555,7 @@ function IncidentRow({
     <button
       type="button"
       onClick={onClick}
-      aria-label={`${incident.reference} ${typeLabel(incident.type, locale)}, ${severityLabel(incident.severity, locale)}`}
+      aria-label={`${incident.reference} ${typeLabel(incident.type, locale, incident.typeNote)}, ${severityLabel(incident.severity, locale)}`}
       className={cn(
         "flex w-full min-h-[4.5rem] overflow-hidden rounded-2xl border border-border bg-card text-left transition-colors hover:bg-secondary/40",
         highlighted && "ring-2 ring-amber-400 ring-offset-2 ring-offset-background"
@@ -562,7 +571,7 @@ function IncidentRow({
             <span className="mr-2 font-mono text-xs font-normal text-amber-700 dark:text-amber-300">
               {incident.reference}
             </span>
-            {typeLabel(incident.type, locale)}
+            {typeLabel(incident.type, locale, incident.typeNote)}
           </span>
           <span className="ml-auto shrink-0 text-xs text-muted-foreground">
             {relativeTime(incident.createdAt, locale)}

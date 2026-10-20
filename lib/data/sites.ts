@@ -6,6 +6,7 @@ export const SITES: Site[] = [
     name: "Volvo Torslanda Plant",
     city: "Gothenburg",
     address: "Torslandavägen, 405 31 Göteborg",
+    organizationId: "org-volvo",
     organizationName: "Volvo Personvagnar AB",
     organizationNumber: "556074-3089",
     locations: [
@@ -20,6 +21,7 @@ export const SITES: Site[] = [
     name: "Kvillebäcken Construction Site",
     city: "Gothenburg",
     address: "Kvillebäcksvägen, 417 05 Göteborg",
+    organizationId: "org-nordic",
     organizationName: "Nordic Siteworks AB",
     organizationNumber: "559123-4418",
     locations: [
@@ -34,6 +36,7 @@ export const SITES: Site[] = [
     name: "Malmö Component Works",
     city: "Malmö",
     address: "Kalkbrottsgatan 12, 212 25 Malmö",
+    organizationId: "org-sydkomp",
     organizationName: "Sydkomponent AB",
     organizationNumber: "556887-2201",
     locations: [
@@ -52,3 +55,10 @@ export function findSite(siteId: string) {
 export function findLocation(siteId: string, locationId: string) {
   return findSite(siteId)?.locations.find((location) => location.id === locationId) ?? null;
 }
+
+/** Demo companies (tenants) behind the demo sites. */
+export const ORGANIZATIONS = [
+  { id: "org-volvo", name: "Volvo Personvagnar AB", organizationNumber: "556074-3089", address: null, industry: "Automotive", active: true },
+  { id: "org-nordic", name: "Nordic Siteworks AB", organizationNumber: "559123-4418", address: null, industry: "Construction", active: true },
+  { id: "org-sydkomp", name: "Sydkomponent AB", organizationNumber: "556887-2201", address: null, industry: "Manufacturing", active: true },
+];

@@ -2,11 +2,14 @@ import { computeMetrics, sortIncidents } from "@/lib/data/metrics";
 import type { IncidentRepository } from "@/lib/data/repository";
 import { SEED_INCIDENTS } from "@/lib/data/seed-incidents";
 import { SEED_SAFETY_WALKS } from "@/lib/data/seed-walks";
-import { findLocation, findSite, SITES } from "@/lib/data/sites";
+import { findLocation, findSite, ORGANIZATIONS, SITES } from "@/lib/data/sites";
 import { toSafetyWalkSummary } from "@/lib/supabase/mappers";
 import type {
   Audit,
   AuditItemResult,
+  Organization,
+  RiskType,
+  Site,
   ChecklistTemplate,
   Contact,
   CreateIncidentInput,
@@ -66,17 +69,24 @@ function objectUrl(blob: Blob | null | undefined) {
 /** In-memory repository used when Supabase is not configured (demo / offline dev). */
 export function createMockRepository(): IncidentRepository {
   let incidents = cloneIncidents();
+  const sites: Site[] = structuredClone(SITES);
+  let organizations: Organization[] = structuredClone(ORGANIZATIONS);
+  let riskTypes: RiskType[] = [
+    { id: "rt-forklift", organizationId: "org-volvo", label: "Truck / forklift", active: true },
+    { id: "rt-glass", organizationId: "org-sydkomp", label: "Glass breakage", active: true },
+  ];
+  const siteOf = (id: string) => sites.find((site) => site.id === id) ?? null;
   let walks: SafetyWalk[] = structuredClone(SEED_SAFETY_WALKS);
   let contacts: Contact[] = [
     { id: "contact-anna", name: "Anna Bergström", email: "anna.bergstrom@example.se", role: "HSE Manager" },
     { id: "contact-erik", name: "Erik Lindqvist", email: "erik.lindqvist@example.se", role: "Safety Officer" },
   ];
   let profiles: Profile[] = [
-    { id: "p-anna", fullName: "Anna Bergström", email: "anna.bergstrom@example.se", phone: null, role: "hse_manager", siteId: null, siteName: null, employeeNo: "1001", reportsTo: null, reportsToName: null, language: "sv", active: true },
-    { id: "p-erik", fullName: "Erik Lindqvist", email: "erik.lindqvist@example.se", phone: null, role: "safety_officer", siteId: "site-kvillebacken", siteName: "Kvillebäcken Construction Site", employeeNo: "1002", reportsTo: "p-anna", reportsToName: "Anna Bergström", language: "sv", active: true },
-    { id: "p-johan", fullName: "Johan Ek", email: "johan.ek@example.se", phone: null, role: "foreman", siteId: "site-kvillebacken", siteName: "Kvillebäcken Construction Site", employeeNo: "2001", reportsTo: "p-erik", reportsToName: "Erik Lindqvist", language: "sv", active: true },
-    { id: "p-ali", fullName: "Ali Yılmaz", email: null, phone: null, role: "worker", siteId: "site-kvillebacken", siteName: "Kvillebäcken Construction Site", employeeNo: "3001", reportsTo: "p-johan", reportsToName: "Johan Ek", language: "tr", active: true },
-    { id: "p-piotr", fullName: "Piotr Nowak", email: null, phone: null, role: "worker", siteId: "site-kvillebacken", siteName: "Kvillebäcken Construction Site", employeeNo: "3002", reportsTo: "p-johan", reportsToName: "Johan Ek", language: "pl", active: true },
+    { id: "p-anna", fullName: "Anna Bergström", email: "anna.bergstrom@example.se", phone: null, role: "hse_manager", organizationId: "org-nordic", siteId: null, siteName: null, employeeNo: "1001", reportsTo: null, reportsToName: null, language: "sv", active: true },
+    { id: "p-erik", fullName: "Erik Lindqvist", email: "erik.lindqvist@example.se", phone: null, role: "safety_officer", organizationId: "org-nordic", siteId: "site-kvillebacken", siteName: "Kvillebäcken Construction Site", employeeNo: "1002", reportsTo: "p-anna", reportsToName: "Anna Bergström", language: "sv", active: true },
+    { id: "p-johan", fullName: "Johan Ek", email: "johan.ek@example.se", phone: null, role: "foreman", organizationId: "org-nordic", siteId: "site-kvillebacken", siteName: "Kvillebäcken Construction Site", employeeNo: "2001", reportsTo: "p-erik", reportsToName: "Erik Lindqvist", language: "sv", active: true },
+    { id: "p-ali", fullName: "Ali Yılmaz", email: null, phone: null, role: "worker", organizationId: "org-nordic", siteId: "site-kvillebacken", siteName: "Kvillebäcken Construction Site", employeeNo: "3001", reportsTo: "p-johan", reportsToName: "Johan Ek", language: "tr", active: true },
+    { id: "p-piotr", fullName: "Piotr Nowak", email: null, phone: null, role: "worker", organizationId: "org-nordic", siteId: "site-kvillebacken", siteName: "Kvillebäcken Construction Site", employeeNo: "3002", reportsTo: "p-johan", reportsToName: "Johan Ek", language: "pl", active: true },
   ];
   let tasks: Task[] = [
     { id: "task-1", title: "Zone 3 scaffold tag renewal", description: "Arrange re-inspection and new tag before Monday.", priority: "high", status: "open", assigneeId: "p-johan", assigneeName: "Johan Ek", createdById: "p-erik", createdByName: "Erik Lindqvist", siteId: "site-kvillebacken", incidentId: null, incidentReference: null, dueDate: "2026-10-20", feedback: "", completedAt: null, createdAt: "2026-10-15T08:00:00.000Z", updatedAt: null },
@@ -103,7 +113,7 @@ export function createMockRepository(): IncidentRepository {
 
   return {
     async listSites() {
-      return structuredClone(SITES);
+      return structuredClone(sites);
     },
 
     async listIncidents() {
@@ -120,8 +130,10 @@ export function createMockRepository(): IncidentRepository {
       const categories = (input.categories ?? (input.category === "unclassified" ? [] : [input.category])).filter(
         (category) => category !== "unclassified"
       );
-      const site = findSite(input.siteId);
-      const locationNames = locationIds.map((id) => findLocation(input.siteId, id)?.name).filter(Boolean) as string[];
+      const site = input.siteId ? siteOf(input.siteId) : null;
+      const locationNames = locationIds
+        .map((id) => site?.locations.find((location) => location.id === id)?.name ?? findLocation(input.siteId, id)?.name)
+        .filter(Boolean) as string[];
       const created: Incident = {
         id: `inc-${crypto.randomUUID().slice(0, 8)}`,
         reference: nextReference(incidents),
@@ -131,6 +143,9 @@ export function createMockRepository(): IncidentRepository {
         locationIds,
         siteName: site?.name,
         locationName: locationNames.length ? locationNames.join(", ") : site?.name,
+        organizationId: site?.organizationId ?? input.organizationId ?? null,
+        locationNote: input.locationNote?.trim() || null,
+        typeNote: input.typeNote?.trim() || null,
         category: categories[0] ?? "unclassified",
         categories,
         severity: input.severity,
@@ -468,6 +483,123 @@ export function createMockRepository(): IncidentRepository {
       };
       audits[index] = updated;
       return structuredClone(updated);
+    },
+
+    async listOrganizations() {
+      return structuredClone(organizations);
+    },
+
+    async createOrganization(input) {
+      const organization: Organization = {
+        id: `org-${crypto.randomUUID().slice(0, 8)}`,
+        name: input.name.trim(),
+        organizationNumber: input.organizationNumber?.trim() || null,
+        address: input.address?.trim() || null,
+        industry: input.industry?.trim() || null,
+        active: true,
+      };
+      organizations = [...organizations, organization];
+      return structuredClone(organization);
+    },
+
+    async updateOrganization(id, patch) {
+      const index = organizations.findIndex((item) => item.id === id);
+      if (index === -1) throw new Error(`Company ${id} not found`);
+      organizations[index] = {
+        ...organizations[index],
+        ...(patch.name !== undefined ? { name: patch.name.trim() } : {}),
+        ...(patch.organizationNumber !== undefined ? { organizationNumber: patch.organizationNumber ?? null } : {}),
+        ...(patch.address !== undefined ? { address: patch.address ?? null } : {}),
+        ...(patch.industry !== undefined ? { industry: patch.industry ?? null } : {}),
+        ...(patch.active !== undefined ? { active: patch.active } : {}),
+      };
+      return structuredClone(organizations[index]);
+    },
+
+    async createSite(input) {
+      const organization = organizations.find((item) => item.id === input.organizationId);
+      const site: Site = {
+        id: `site-${crypto.randomUUID().slice(0, 8)}`,
+        name: input.name.trim(),
+        city: input.city?.trim() || "",
+        address: input.address?.trim() || undefined,
+        organizationId: input.organizationId,
+        organizationName: organization?.name,
+        active: true,
+        locations: [],
+      };
+      sites.push(site);
+      return structuredClone(site);
+    },
+
+    async updateSite(id, patch) {
+      const site = siteOf(id);
+      if (!site) throw new Error(`Site ${id} not found`);
+      if (patch.name !== undefined) site.name = patch.name.trim();
+      if (patch.city !== undefined) site.city = patch.city?.trim() || "";
+      if (patch.address !== undefined) site.address = patch.address?.trim() || undefined;
+      if (patch.active !== undefined) site.active = patch.active;
+    },
+
+    async createLocation(siteId, name) {
+      const site = siteOf(siteId);
+      if (!site) throw new Error(`Site ${siteId} not found`);
+      const location = { id: `loc-${crypto.randomUUID().slice(0, 8)}`, name: name.trim(), latitude: null, longitude: null };
+      site.locations.push(location);
+      return structuredClone(location);
+    },
+
+    async removeLocation(id) {
+      for (const site of sites) site.locations = site.locations.filter((location) => location.id !== id);
+    },
+
+    async listRiskTypes(organizationId) {
+      return structuredClone(riskTypes.filter((item) => item.active && (!organizationId || item.organizationId === organizationId)));
+    },
+
+    async createRiskType(organizationId, label) {
+      const clean = label.trim().slice(0, 80);
+      if (riskTypes.some((item) => item.organizationId === organizationId && item.label.toLowerCase() === clean.toLowerCase())) {
+        throw new Error("This risk type already exists.");
+      }
+      const riskType: RiskType = { id: `rt-${crypto.randomUUID().slice(0, 8)}`, organizationId, label: clean, active: true };
+      riskTypes = [...riskTypes, riskType];
+      return structuredClone(riskType);
+    },
+
+    async removeRiskType(id) {
+      riskTypes = riskTypes.filter((item) => item.id !== id);
+    },
+
+    async listOrgPeople(organizationId) {
+      return profiles
+        .filter((person) => person.active && person.role !== "super_admin" && person.organizationId === organizationId)
+        .map((person) => ({ id: person.id, fullName: person.fullName, role: person.role, employeeNo: person.employeeNo }));
+    },
+
+    async createStaff(input) {
+      const email = input.email?.trim() || null;
+      if (email && profiles.some((person) => person.email?.toLowerCase() === email.toLowerCase())) {
+        throw new Error("Someone with this e-mail is already in the list.");
+      }
+      const site = input.siteId ? siteOf(input.siteId) : null;
+      const profile: Profile = {
+        id: `p-${crypto.randomUUID().slice(0, 8)}`,
+        fullName: input.fullName.trim(),
+        email,
+        phone: input.phone?.trim() || null,
+        role: input.role,
+        organizationId: input.organizationId ?? site?.organizationId ?? null,
+        siteId: input.siteId ?? null,
+        siteName: site?.name ?? null,
+        employeeNo: input.employeeNo?.trim() || null,
+        reportsTo: null,
+        reportsToName: null,
+        language: null,
+        active: true,
+      };
+      profiles = [...profiles, profile];
+      return { profile: structuredClone(profile), login: email && input.password ? "created" : "none" };
     },
 
     async trackIncident(code) {

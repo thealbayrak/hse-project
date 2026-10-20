@@ -13,6 +13,7 @@ import {
   MicIcon,
   QrCodeIcon,
   SearchCheckIcon,
+  SettingsIcon,
   ShieldCheckIcon,
   UsersIcon,
 } from "lucide-react";
@@ -32,6 +33,7 @@ const STAFF_LINKS: { href: string; permission: Permission; titleKey: string; hin
   { href: "/reports", permission: "reports.view", titleKey: "home.reports", hintKey: "home.reportsHint", icon: LineChartIcon },
   { href: "/audits", permission: "audits.conduct", titleKey: "home.audits", hintKey: "home.auditsHint", icon: ClipboardCheckIcon },
   { href: "/people", permission: "people.manage", titleKey: "home.people", hintKey: "home.peopleHint", icon: UsersIcon },
+  { href: "/settings", permission: "settings.manage", titleKey: "home.settings", hintKey: "home.settingsHint", icon: SettingsIcon },
   { href: "/projects", permission: "projects.manage", titleKey: "home.projects", hintKey: "home.projectsHint", icon: QrCodeIcon },
 ];
 

@@ -47,6 +47,8 @@ const baseIncident: IncidentQueryRow = {
   location_ids: [],
   categories: [],
   audit_id: null,
+  location_note: null,
+  type_note: null,
   created_at: "2026-09-08T07:40:00.000Z",
   updated_at: null,
   sites: { id: "site-1", name: "Torslanda", city: "Gothenburg" },
@@ -94,13 +96,14 @@ describe("enum mappers", () => {
     expect(mapIncidentType("near_miss")).toBe("near-miss");
     expect(mapIncidentType("Tillbud")).toBe("near-miss");
     expect(mapIncidentType("risk")).toBe("hazard");
-    expect(mapIncidentType("anything-else")).toBe("accident");
+    expect(mapIncidentType("anything-else")).toBe("other");
+    expect(mapIncidentType("olycka")).toBe("accident");
     expect(mapSeverity("CRITICAL")).toBe("critical");
     expect(mapSeverity("unknown")).toBe("medium");
     expect(mapStatus("in_progress")).toBe("in-progress");
     expect(mapStatus("weird")).toBe("open");
     expect(mapCategory("falling_objects")).toBe("falling-objects");
-    expect(mapCategory("nope")).toBe("other");
+    expect(mapCategory("Glass breakage")).toBe("Glass breakage");
   });
 
   it("recognises uuids", () => {
@@ -163,6 +166,7 @@ describe("mapSite", () => {
     created_at: "",
     latitude: null,
     longitude: null,
+    active: true,
     organizations: { id: "org-1", name: "Volvo", organization_number: "556074-3089", address: "Torslandavägen" },
     site_locations: [
       { id: "b", name: "Second", sort_order: 1, latitude: null, longitude: null },
@@ -179,9 +183,10 @@ describe("mapSite", () => {
     expect(site.city).toBe("");
   });
 
-  it("uses the site itself as the only location when none exist", () => {
+  it("has no areas when the site has none (areas are optional)", () => {
     const site = mapSite({ ...row, site_locations: [] });
-    expect(site.locations).toEqual([{ id: "site-1", name: "Torslanda" }]);
+    expect(site.locations).toEqual([]);
+    expect(site.active).toBe(true);
   });
 });
 

@@ -1,7 +1,7 @@
 import type {
+  BuiltInRiskCategory,
   IncidentStatus,
   IncidentType,
-  RiskCategory,
   Severity,
 } from "@/lib/types";
 
@@ -56,7 +56,7 @@ export const INCIDENT_TYPES: {
 
 /** Selectable risk types (open list; "unclassified" is never offered, it is the empty state). */
 export const RISK_CATEGORIES: {
-  id: Exclude<RiskCategory, "unclassified">;
+  id: Exclude<BuiltInRiskCategory, "unclassified">;
   label: string;
 }[] = [
   { id: "falls", label: "Falls from height" },

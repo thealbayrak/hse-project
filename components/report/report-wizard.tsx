@@ -8,7 +8,7 @@ import {
   CloudOffIcon,
   CopyIcon,
   EyeOffIcon,
-  HistoryIcon,
+  MapPinIcon,
   ImagePlusIcon,
   LanguagesIcon,
   Loader2Icon,
@@ -24,6 +24,7 @@ import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { StatutoryBanner } from "@/components/layout/statutory-banner";
+import { ChoicePicker } from "@/components/report/choice-picker";
 import { LocationPicker, type LatLng } from "@/components/report/location-picker";
 import { NearbyPlaces } from "@/components/report/nearby-places";
 import { useVoiceCapture } from "@/hooks/use-voice-capture";
@@ -47,6 +48,7 @@ const TYPE_HINT: Record<IncidentType, string> = {
   "good-observation": "incident.goodObservationHint",
   "positive-observation": "incident.positiveObservationHint",
   environmental: "incident.environmentalHint",
+  other: "incident.otherHint",
 };
 
 const STEP_KEYS = ["report.stepWhat", "report.stepDetails", "report.stepReview"] as const;
@@ -65,8 +67,11 @@ interface Draft extends Omit<ReportDraft, "severity"> {
 
 const EMPTY_DRAFT: Draft = {
   type: null,
+  typeNote: "",
   siteId: "",
+  placeNote: "",
   locationIds: [],
+  areaNotes: [],
   categories: [],
   hurt: null,
   danger: null,
@@ -93,8 +98,12 @@ export function ReportWizard({ aiEnabled = false }: { aiEnabled?: boolean }) {
   const router = useRouter();
   const searchParams = useSearchParams();
   const projectId = searchParams.get("project") ?? searchParams.get("site");
+  const orgParam = searchParams.get("org");
   const { locale, t } = useLanguage();
-  const { sites, createIncident, loading, error, listSitePeople } = useIncidentStore();
+  const { sites, createIncident, loading, error, listSitePeople, listOrgPeople, listRiskTypes, listOrganizations } = useIncidentStore();
+  const [showMap, setShowMap] = useState(false);
+  const [companyRisks, setCompanyRisks] = useState<{ orgId: string; labels: string[] } | null>(null);
+  const [companyName, setCompanyName] = useState<{ orgId: string; name: string } | null>(null);
   const [step, setStep] = useState(0);
   const [draft, setDraft] = useState<Draft>(EMPTY_DRAFT);
   const [submitting, setSubmitting] = useState(false);
@@ -114,12 +123,16 @@ export function ReportWizard({ aiEnabled = false }: { aiEnabled?: boolean }) {
 
   // The last-used site is listed first but never pre-selected: the worker (or the
   // assistant, from the voice note) names the place every time.
-  const orderedSites = lastSite
-    ? [...sites].sort((a, b) => Number(b.id === lastSite.siteId) - Number(a.id === lastSite.siteId))
-    : sites;
-  // A QR code carries ?project=<site id>: the site is fixed and the list is hidden.
+  // A company QR code carries ?org=<company id>: only that company's places are offered.
+  // An older site QR code carries ?project=<site id>: the site is fixed.
   const lockedSite = projectId ? sites.find((site) => site.id === projectId) : undefined;
-  const siteId = draft.siteId || lockedSite?.id || "";
+  const lockedOrgId = lockedSite?.organizationId ?? orgParam ?? null;
+  const companySites = sites.filter((site) => site.active !== false && (!lockedOrgId || site.organizationId === lockedOrgId));
+  const orderedSites = lastSite
+    ? [...companySites].sort((a, b) => Number(b.id === lastSite.siteId) - Number(a.id === lastSite.siteId))
+    : companySites;
+  const onlySite = lockedOrgId && companySites.length === 1 ? companySites[0] : undefined;
+  const siteId = draft.siteId || lockedSite?.id || (draft.placeNote ? "" : (onlySite?.id ?? ""));
   const selectedSite = sites.find((site) => site.id === siteId);
   const locations = selectedSite?.locations ?? [];
   const locationIds = draft.locationIds.filter((id) => locations.some((location) => location.id === id));
@@ -132,30 +145,83 @@ export function ReportWizard({ aiEnabled = false }: { aiEnabled?: boolean }) {
         ? { latitude: selectedSite.latitude, longitude: selectedSite.longitude }
         : null;
 
-  const positive = draft.type ? isPositiveType(draft.type) : false;
-  const severity = draft.type ? deriveSeverity(draft.type, draft) : null;
-  // Only the type and the site are required; area, map pin and risk type can be added later by the safety team.
-  const step1Ready = Boolean(draft.type && siteId);
-  const step2Ready = Boolean(severity && draft.description.trim().length >= 8);
+  const organizationId = selectedSite?.organizationId ?? lockedOrgId ?? null;
+  const organizationLabel =
+    selectedSite?.organizationName ?? companySites[0]?.organizationName ?? (companyName?.orgId === lockedOrgId ? companyName?.name : undefined);
+
+  // The company's own risk types join the built-in list.
+  useEffect(() => {
+    if (!organizationId) return;
+    let cancelled = false;
+    listRiskTypes(organizationId)
+      .then((rows) => {
+        if (!cancelled) setCompanyRisks({ orgId: organizationId, labels: rows.map((row) => row.label) });
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, [organizationId, listRiskTypes]);
+  const ownRisks = companyRisks?.orgId === organizationId ? companyRisks.labels : [];
+
+  // A company without places yet still shows its name on the QR form.
+  useEffect(() => {
+    if (!lockedOrgId || companySites.length) return;
+    let cancelled = false;
+    listOrganizations()
+      .then((rows) => {
+        const found = rows.find((row) => row.id === lockedOrgId);
+        if (!cancelled && found) setCompanyName({ orgId: lockedOrgId, name: found.name });
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, [lockedOrgId, companySites.length, listOrganizations]);
+
+  const effectiveType = draft.type ?? (draft.typeNote ? "other" : null);
+  const positive = effectiveType ? isPositiveType(effectiveType) : false;
+  // Only the description is required. Unanswered questions get a cautious default the team can correct.
+  const severity =
+    deriveSeverity(effectiveType ?? "other", draft) ?? (positive ? "low" : effectiveType === "accident" ? "high" : "medium");
+  const step1Ready = true;
+  const step2Ready = draft.description.trim().length >= 8;
+  const builtInRisks = RISK_CATEGORIES.map((item) => item.id as string);
+  const riskOptions = [
+    ...RISK_CATEGORIES.map((item) => ({ value: item.id as string, label: categoryLabel(item.id, locale) })),
+    ...ownRisks.filter((label) => !builtInRisks.includes(label)).map((label) => ({ value: label, label })),
+  ];
+  const selectedRiskValues = draft.categories.filter((value) => riskOptions.some((option) => option.value === value));
+  const customRisks = draft.categories.filter((value) => !riskOptions.some((option) => option.value === value));
+  const placeSummary = [
+    selectedLocations.map((location) => location.name).join(", "),
+    selectedSite?.name ?? "",
+    draft.placeNote,
+    draft.areaNotes.join(", "),
+  ]
+    .filter(Boolean)
+    .join(" · ");
 
   // People on the chosen site, so the reporter can pick their own name.
   const [sitePeople, setSitePeople] = useState<{ siteId: string; people: SitePerson[] } | null>(null);
   const [peopleQuery, setPeopleQuery] = useState("");
+  const peopleKey = siteId || (organizationId ? `org:${organizationId}` : "");
   useEffect(() => {
-    if (!siteId) return;
+    if (!peopleKey) return;
     let cancelled = false;
-    listSitePeople(siteId)
+    const load = siteId ? listSitePeople(siteId) : listOrgPeople(organizationId!);
+    load
       .then((people) => {
-        if (!cancelled) setSitePeople({ siteId, people });
+        if (!cancelled) setSitePeople({ siteId: peopleKey, people });
       })
       .catch(() => {
-        if (!cancelled) setSitePeople({ siteId, people: [] });
+        if (!cancelled) setSitePeople({ siteId: peopleKey, people: [] });
       });
     return () => {
       cancelled = true;
     };
-  }, [siteId, listSitePeople]);
-  const peopleOnSite = sitePeople?.siteId === siteId ? sitePeople.people : [];
+  }, [peopleKey, siteId, organizationId, listSitePeople, listOrgPeople]);
+  const peopleOnSite = sitePeople?.siteId === peopleKey ? sitePeople.people : [];
   const filteredPeople = peopleOnSite.filter((person) => {
     const needle = peopleQuery.trim().toLowerCase();
     return !needle || person.fullName.toLowerCase().includes(needle) || (person.employeeNo ?? "").toLowerCase().includes(needle);
@@ -179,7 +245,7 @@ export function ReportWizard({ aiEnabled = false }: { aiEnabled?: boolean }) {
   async function runAnalysis(input: { audio?: Blob; text?: string; quick?: boolean }) {
     setAnalysis({ status: "working" });
     try {
-      const result = await analyzeReport({ ...input, locale, sites });
+      const result = await analyzeReport({ ...input, locale, sites: companySites });
       let next: Draft | null = null;
       setDraft((current) => {
         const site = current.siteId || lockedSite?.id || result.siteId || "";
@@ -202,16 +268,14 @@ export function ReportWizard({ aiEnabled = false }: { aiEnabled?: boolean }) {
       });
       setAnalysis({ status: "done", result });
       if (input.quick && next) {
-        // Everything known? Go straight to the check-and-send step; otherwise stop where something is missing.
+        // Only the description is required: with it the worker can go straight to check and send.
         const filled = next as Draft;
-        const siteKnown = sites.some((item) => item.id === filled.siteId);
-        const answersKnown = filled.type ? isPositiveType(filled.type) || (filled.hurt !== null && filled.danger !== null) : false;
-        const detailsKnown = answersKnown && filled.description.trim().length >= 8;
-        if (filled.type && siteKnown && detailsKnown) setStep(2);
-        else if (filled.type && siteKnown) setStep(1);
-        if (!filled.type) toast.message(t("quick.missingType"));
-        else if (!siteKnown) toast.message(t("quick.missingPlace"));
-        else toast.success(t("quick.filled"));
+        if (filled.description.trim().length >= 8) {
+          setStep(2);
+          toast.success(t("quick.filled"));
+        } else {
+          setStep(1);
+        }
       }
     } catch (caught) {
       setAnalysis({ status: "failed", error: caught instanceof Error ? caught.message : "failed" });
@@ -262,13 +326,17 @@ export function ReportWizard({ aiEnabled = false }: { aiEnabled?: boolean }) {
   }
 
   async function submit() {
-    if (!draft.type || !severity || !siteId) return;
+    if (!step2Ready) return;
     setSubmitting(true);
     try {
       const reporter = draft.anonymous ? null : draft.reporter;
+      const locationNote = [draft.placeNote.trim(), ...draft.areaNotes.map((note) => note.trim())].filter(Boolean).join(" · ");
       const created = await createIncident({
-        type: draft.type,
+        type: effectiveType ?? "other",
+        typeNote: draft.typeNote.trim() || null,
         siteId,
+        organizationId,
+        locationNote: locationNote || null,
         locationId: locationIds[0] ?? "",
         locationIds,
         category: draft.categories[0] ?? "unclassified",
@@ -288,7 +356,7 @@ export function ReportWizard({ aiEnabled = false }: { aiEnabled?: boolean }) {
         summarySv: draft.summarySv,
         aiConfidence: draft.aiConfidence,
       });
-      rememberLastSite({ siteId, locationId: locationIds[0] ?? "" });
+      if (siteId) rememberLastSite({ siteId, locationId: locationIds[0] ?? "" });
       setSubmitted({
         reference: created.reference,
         pending: Boolean(created.pending),
@@ -309,6 +377,7 @@ export function ReportWizard({ aiEnabled = false }: { aiEnabled?: boolean }) {
     setAnalysis({ status: "idle" });
     analyzedBlobRef.current = null;
     setPeopleQuery("");
+    setShowMap(false);
     setStep(0);
     voice.clearAudio();
   }
@@ -420,103 +489,103 @@ export function ReportWizard({ aiEnabled = false }: { aiEnabled?: boolean }) {
             </div>
           )}
 
-          <fieldset>
-            <legend className="mb-3 text-lg font-semibold">{t("incident.whatToReport")}</legend>
-            <div className="grid gap-3">
-              {INCIDENT_TYPES.map((item) => (
-                <ChoiceButton
-                  key={item.id}
-                  active={draft.type === item.id}
-                  onClick={() => patch({ type: item.id })}
-                  className="min-h-[4.5rem]"
-                >
-                  <span className="block text-base font-semibold">{typeLabel(item.id, locale)}</span>
-                  <span className="mt-1 block text-sm text-muted-foreground">{t(TYPE_HINT[item.id])}</span>
-                </ChoiceButton>
-              ))}
-            </div>
-          </fieldset>
-
-          <fieldset>
-            <legend className="mb-3 text-lg font-semibold">{t("incident.where")}</legend>
-            {loading && !sites.length && (
-              <p className="mb-3 text-sm text-muted-foreground">{t("report.loadingSites")}</p>
-            )}
-            {lockedSite ? (
-              <div className="flex items-center gap-3 rounded-2xl border border-amber-500 bg-amber-500/15 px-4 py-3">
-                <QrCodeIcon className="size-5 shrink-0" />
-                <span className="min-w-0">
-                  <span className="block font-medium">{lockedSite.name}</span>
-                  <span className="block text-xs text-muted-foreground">
-                    {[lockedSite.organizationName, lockedSite.city].filter(Boolean).join(" · ")} · {t("report.projectLocked")}
-                  </span>
+          {(lockedSite || lockedOrgId) && (
+            <div className="flex items-center gap-3 rounded-2xl border border-amber-500 bg-amber-500/15 px-4 py-3">
+              <QrCodeIcon className="size-5 shrink-0" />
+              <span className="min-w-0">
+                <span className="block font-medium">{lockedSite?.name ?? organizationLabel ?? "—"}</span>
+                <span className="block text-xs text-muted-foreground">
+                  {[lockedSite ? lockedSite.organizationName : null, lockedSite?.city].filter(Boolean).join(" · ")}
+                  {lockedSite ? " · " : ""}
+                  {t("report.projectLocked")}
                 </span>
-              </div>
-            ) : (
-            <div className="grid gap-2">
-              {orderedSites.map((site) => (
-                <ChoiceButton
-                  key={site.id}
-                  active={siteId === site.id}
-                  onClick={() => patch({ siteId: site.id, locationIds: [], position: null })}
-                  className="min-h-14 py-3"
-                >
-                  <span className="flex items-center gap-2">
-                    <span className="block font-medium">{site.name}</span>
-                    {lastSite?.siteId === site.id && (
-                      <span className="inline-flex items-center gap-1 rounded-full bg-amber-500/15 px-2 py-0.5 text-[11px] font-medium text-amber-700 dark:text-amber-300">
-                        <HistoryIcon className="size-3" />
-                        {t("report.lastUsed")}
-                      </span>
-                    )}
-                  </span>
-                  <span className="text-xs text-muted-foreground">{site.city}</span>
-                </ChoiceButton>
-              ))}
+              </span>
             </div>
-            )}
-            {siteId && locations.length > 1 && (
-              <>
-                <p className="mt-4 mb-1 text-sm font-medium">{t("incident.whichArea")}</p>
-                <p className="mb-2 text-xs text-muted-foreground">{t("incident.whichAreaHint")}</p>
-                <div className="grid grid-cols-2 gap-2">
-                  {locations.map((location) => {
-                    const active = locationIds.includes(location.id);
-                    return (
-                      <ChoiceButton
-                        key={location.id}
-                        active={active}
-                        onClick={() =>
-                          patch({
-                            locationIds: active ? locationIds.filter((id) => id !== location.id) : [...locationIds, location.id],
-                          })
-                        }
-                        className="min-h-14 px-3 py-3 text-sm font-medium"
-                      >
-                        <span className="flex items-center gap-2">
-                          {active && <CheckIcon className="size-4 shrink-0" />}
-                          {location.name}
-                        </span>
-                      </ChoiceButton>
-                    );
-                  })}
-                </div>
-              </>
-            )}
+          )}
+
+          <fieldset>
+            <legend className="mb-1 text-lg font-semibold">{t("incident.whatToReport")}</legend>
+            <p className="mb-3 text-sm text-muted-foreground">{t("picker.optional")}</p>
+            <ChoicePicker
+              placeholder={t("picker.typePlaceholder")}
+              options={INCIDENT_TYPES.map((item) => ({ value: item.id, label: typeLabel(item.id, locale), hint: t(TYPE_HINT[item.id]) }))}
+              selected={draft.type && draft.type !== "other" ? [draft.type] : []}
+              custom={draft.typeNote ? [draft.typeNote] : []}
+              onChange={(selected, custom) =>
+                patch({
+                  type: (selected[0] as typeof draft.type) ?? (custom[0] ? "other" : null),
+                  typeNote: selected[0] ? "" : (custom[0] ?? ""),
+                })
+              }
+              addLabel={t("picker.add")}
+              addPlaceholder={t("picker.typeAdd")}
+              doneLabel={t("picker.done")}
+            />
           </fieldset>
 
-          {siteId && (
+          {!lockedSite && (
             <fieldset>
-              <legend className="mb-1 text-lg font-semibold">{t("map.title")}</legend>
-              <p className="mb-3 text-sm text-muted-foreground">{t("map.optionalHint")}</p>
-              <LocationPicker
-                key={`${siteId}:${firstLocation?.id ?? ""}`}
-                center={mapCenter}
-                value={draft.position}
-                onChange={(position) => patch({ position })}
+              <legend className="mb-1 text-lg font-semibold">{t("incident.where")}</legend>
+              <p className="mb-3 text-sm text-muted-foreground">{t("picker.optional")}</p>
+              {loading && !sites.length && <p className="mb-3 text-sm text-muted-foreground">{t("report.loadingSites")}</p>}
+              <ChoicePicker
+                placeholder={t("picker.placePlaceholder")}
+                options={orderedSites.map((site) => ({
+                  value: site.id,
+                  label: site.name,
+                  hint: [lockedOrgId ? null : site.organizationName, site.city, lastSite?.siteId === site.id ? t("report.lastUsed") : null]
+                    .filter(Boolean)
+                    .join(" · "),
+                }))}
+                selected={siteId ? [siteId] : []}
+                custom={draft.placeNote ? [draft.placeNote] : []}
+                onChange={(selected, custom) =>
+                  patch({ siteId: selected[0] ?? "", placeNote: selected[0] ? "" : (custom[0] ?? ""), locationIds: [], position: null })
+                }
+                addLabel={t("picker.add")}
+                addPlaceholder={t("picker.placeAdd")}
+                doneLabel={t("picker.done")}
+                searchPlaceholder={t("picker.search")}
               />
             </fieldset>
           )}
+
+          <fieldset>
+            <legend className="mb-1 text-lg font-semibold">{t("incident.whichArea")}</legend>
+            <p className="mb-3 text-sm text-muted-foreground">{t("incident.whichAreaHint")}</p>
+            <ChoicePicker
+              multiple
+              placeholder={locations.length ? t("picker.areaPlaceholder") : t("picker.areaDescribe")}
+              options={locations.map((location) => ({ value: location.id, label: location.name }))}
+              selected={locationIds}
+              custom={draft.areaNotes}
+              onChange={(selected, custom) => patch({ locationIds: selected, areaNotes: custom })}
+              addLabel={t("picker.add")}
+              addPlaceholder={t("picker.areaAdd")}
+              doneLabel={t("picker.done")}
+              searchPlaceholder={t("picker.search")}
+            />
+          </fieldset>
+
+          <fieldset>
+            {showMap || draft.position ? (
+              <>
+                <legend className="mb-1 text-lg font-semibold">{t("map.title")}</legend>
+                <p className="mb-3 text-sm text-muted-foreground">{t("map.optionalHint")}</p>
+                <LocationPicker
+                  key={`${siteId}:${firstLocation?.id ?? ""}`}
+                  center={mapCenter}
+                  value={draft.position}
+                  onChange={(position) => patch({ position })}
+                />
+              </>
+            ) : (
+              <Button type="button" variant="outline" className="h-12 w-full gap-2" onClick={() => setShowMap(true)}>
+                <MapPinIcon className="size-4" />
+                {t("map.openOptional")}
+              </Button>
+            )}
+          </fieldset>
         </section>
       )}
 
@@ -606,7 +675,7 @@ export function ReportWizard({ aiEnabled = false }: { aiEnabled?: boolean }) {
           {!positive && (
           <fieldset>
             <legend className="mb-1 text-lg font-semibold">{t("incident.howSerious")}</legend>
-            <p className="mb-3 text-sm text-muted-foreground">{t("report.answerBoth")}</p>
+            <p className="mb-3 text-sm text-muted-foreground">{t("report.answerOptional")}</p>
             <div className="space-y-3">
               <YesNoQuestion
                 label={t("report.hurtQuestion")}
@@ -639,28 +708,18 @@ export function ReportWizard({ aiEnabled = false }: { aiEnabled?: boolean }) {
           <fieldset>
             <legend className="mb-1 text-lg font-semibold">{t("incident.whatRisk")}</legend>
             <p className="mb-3 text-sm text-muted-foreground">{t("incident.whatRiskHint")}</p>
-            <div className="grid grid-cols-2 gap-2">
-              {RISK_CATEGORIES.map((item) => {
-                const active = draft.categories.includes(item.id);
-                return (
-                  <ChoiceButton
-                    key={item.id}
-                    active={active}
-                    onClick={() =>
-                      patch({
-                        categories: active ? draft.categories.filter((id) => id !== item.id) : [...draft.categories, item.id],
-                      })
-                    }
-                    className="min-h-14 px-3 py-3 text-sm font-medium"
-                  >
-                    <span className="flex items-center gap-2">
-                      {active && <CheckIcon className="size-4 shrink-0" />}
-                      {categoryLabel(item.id, locale)}
-                    </span>
-                  </ChoiceButton>
-                );
-              })}
-            </div>
+            <ChoicePicker
+              multiple
+              placeholder={t("picker.riskPlaceholder")}
+              options={riskOptions}
+              selected={selectedRiskValues}
+              custom={customRisks}
+              onChange={(selected, custom) => patch({ categories: [...selected, ...custom] })}
+              addLabel={t("picker.add")}
+              addPlaceholder={t("picker.riskAdd")}
+              doneLabel={t("picker.done")}
+              searchPlaceholder={t("picker.search")}
+            />
           </fieldset>
 
           <div>
@@ -792,17 +851,9 @@ export function ReportWizard({ aiEnabled = false }: { aiEnabled?: boolean }) {
       {step === 2 && (
         <section className="space-y-4">
           <h2 className="text-lg font-semibold">{t("report.checkLooksRight")}</h2>
-          <ReviewRow label={t("report.type")} value={draft.type ? typeLabel(draft.type, locale) : "—"} />
-          <ReviewRow
-            label={t("report.place")}
-            value={
-              selectedSite
-                ? selectedLocations.length
-                  ? `${selectedLocations.map((location) => location.name).join(", ")} · ${selectedSite.name}`
-                  : selectedSite.name
-                : "—"
-            }
-          />
+          <ReviewRow label={t("report.type")} value={effectiveType ? typeLabel(effectiveType, locale, draft.typeNote) : t("report.notGiven")} />
+          <ReviewRow label={t("report.company")} value={organizationLabel ?? t("report.notGiven")} />
+          <ReviewRow label={t("report.place")} value={placeSummary || t("report.notGiven")} />
           <ReviewRow label={t("report.risk")} value={categoriesLabel(draft.categories, locale)} />
           <div className="flex items-center justify-between rounded-xl border border-border bg-card px-4 py-3">
             <span className="text-sm text-muted-foreground">{t("report.severity")}</span>
@@ -866,6 +917,7 @@ export function ReportWizard({ aiEnabled = false }: { aiEnabled?: boolean }) {
             type="button"
             className="h-14 text-base"
             disabled={(step === 0 && !step1Ready) || (step === 1 && (!step2Ready || analysis.status === "working"))}
+            title={step === 1 && !step2Ready ? t("report.describeFirst") : undefined}
             onClick={() => setStep((current) => current + 1)}
           >
             {t("buttons.continue")}
@@ -874,12 +926,12 @@ export function ReportWizard({ aiEnabled = false }: { aiEnabled?: boolean }) {
           <Button
             type="button"
             className="h-14 text-base"
-            disabled={submitting || !step1Ready || !step2Ready}
+            disabled={submitting || !step2Ready}
             onClick={() => void submit()}
           >
             {submitting
               ? t("buttons.sending")
-              : draft.type === "hazard"
+              : effectiveType === "hazard"
                 ? t("buttons.submitHazard")
                 : t("buttons.sendReport")}
           </Button>

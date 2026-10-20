@@ -2,8 +2,8 @@ import type { Role } from "@/lib/types";
 
 /**
  * What each role may do. Workers never sign in: they report and track.
- * A signed-in user without a profile row is treated as a safety officer so a
- * freshly created account is not locked out before the people list is imported.
+ * A signed-in user without a profile row has no access; the owner or a company
+ * manager adds people (Settings) and the database scopes data to their company.
  * Data is scoped to the person's organisation by the database; a super admin
  * sees every organisation.
  */
@@ -18,6 +18,7 @@ export type Permission =
   | "meeting.plan"
   | "audits.conduct"
   | "audits.manage"
+  | "settings.manage"
   | "projects.manage";
 
 const OFFICER: Permission[] = [
@@ -32,7 +33,7 @@ const OFFICER: Permission[] = [
   "audits.manage",
 ];
 
-const MANAGER: Permission[] = [...OFFICER, "people.manage", "projects.manage"];
+const MANAGER: Permission[] = [...OFFICER, "people.manage", "settings.manage"];
 
 const MATRIX: Record<Role, Permission[]> = {
   worker: [],
@@ -40,10 +41,12 @@ const MATRIX: Record<Role, Permission[]> = {
   safety_officer: OFFICER,
   hse_manager: MANAGER,
   admin: MANAGER,
-  super_admin: MANAGER,
+  // Only the app owner creates companies, prints their QR codes and appoints managers.
+  super_admin: [...MANAGER, "projects.manage"],
 };
 
-export const DEFAULT_SIGNED_IN_ROLE: Role = "safety_officer";
+/** A signed-in account that is not in the people list gets no access until someone adds it. */
+export const DEFAULT_SIGNED_IN_ROLE: Role = "worker";
 
 export function can(role: Role | null | undefined, permission: Permission) {
   return MATRIX[role ?? "worker"].includes(permission);
@@ -58,4 +61,5 @@ export const PROTECTED_ROUTES: { prefix: string; permission: Permission }[] = [
   { prefix: "/people", permission: "people.manage" },
   { prefix: "/audits", permission: "audits.conduct" },
   { prefix: "/projects", permission: "projects.manage" },
+  { prefix: "/settings", permission: "settings.manage" },
 ];

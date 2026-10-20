@@ -10,7 +10,9 @@ import {
   mapAudit,
   mapContact,
   mapIncident,
+  mapOrganization,
   mapProfile,
+  mapRiskType,
   mapRole,
   mapSafetyWalk,
   mapSite,
@@ -30,6 +32,13 @@ import {
 import type {
   Audit,
   AuditItemResult,
+  CreateOrganizationInput,
+  CreateSiteInput,
+  CreateStaffInput,
+  CreateStaffResult,
+  Organization,
+  RiskType,
+  SiteLocation,
   ChecklistTemplate,
   Contact,
   CreateAuditInput,
@@ -61,7 +70,7 @@ export const MEDIA_BUCKET = "incident-media";
 const SIGNED_URL_TTL_SECONDS = 60 * 60 * 4;
 
 const SITE_SELECT =
-  "*, organizations ( id, name, organization_number, address ), site_locations ( id, name, sort_order )";
+  "*, organizations ( id, name, organization_number, address ), site_locations ( id, name, sort_order, latitude, longitude )";
 
 const INCIDENT_SELECT = `
   *,
@@ -130,7 +139,10 @@ export class SupabaseIncidentRepository implements IncidentRepository {
 
     const rpc = await this.client.rpc("submit_incident", {
       p_id: id,
-      p_site_id: input.siteId,
+      p_site_id: input.siteId || null,
+      p_organization_id: input.organizationId ?? null,
+      p_location_note: input.locationNote ?? null,
+      p_type_note: input.typeNote ?? null,
       p_location_id: locationIds[0] ?? null,
       p_location_ids: locationIds,
       p_type: input.type,
@@ -172,6 +184,9 @@ export class SupabaseIncidentRepository implements IncidentRepository {
       locationName: locationNames.length ? locationNames.join(", ") : site?.name,
       category: categories[0] ?? "unclassified",
       categories,
+      organizationId: input.organizationId ?? site?.organizationId ?? null,
+      locationNote: input.locationNote ?? null,
+      typeNote: input.typeNote ?? null,
       severity: input.severity,
       description: input.description,
       mediaUrls: input.mediaUrls,
@@ -672,6 +687,132 @@ export class SupabaseIncidentRepository implements IncidentRepository {
       throw result.error;
     }
     return mapAudit(result.data as unknown as AuditQueryRow);
+  }
+
+  // -------------------------------------------------------------------------
+  // Companies and settings
+  // -------------------------------------------------------------------------
+
+  async listOrganizations(): Promise<Organization[]> {
+    const result = await this.client.from("organizations").select("*").order("name");
+    if (result.error) throw result.error;
+    return (result.data ?? []).map(mapOrganization);
+  }
+
+  async createOrganization(input: CreateOrganizationInput): Promise<Organization> {
+    const result = await this.client
+      .from("organizations")
+      .insert({
+        name: input.name.trim(),
+        organization_number: input.organizationNumber?.trim() || null,
+        address: input.address?.trim() || null,
+        industry: input.industry?.trim() || null,
+      })
+      .select("*")
+      .single();
+    if (result.error) throw result.error;
+    return mapOrganization(result.data);
+  }
+
+  async updateOrganization(id: string, patch: Partial<CreateOrganizationInput & { active: boolean }>): Promise<Organization> {
+    const payload: Database["public"]["Tables"]["organizations"]["Update"] = {};
+    if (patch.name !== undefined) payload.name = patch.name.trim();
+    if (patch.organizationNumber !== undefined) payload.organization_number = patch.organizationNumber?.trim() || null;
+    if (patch.address !== undefined) payload.address = patch.address?.trim() || null;
+    if (patch.industry !== undefined) payload.industry = patch.industry?.trim() || null;
+    if (patch.active !== undefined) payload.active = patch.active;
+    const result = await this.client.from("organizations").update(payload).eq("id", id).select("*").single();
+    if (result.error) throw result.error;
+    return mapOrganization(result.data);
+  }
+
+  async createSite(input: CreateSiteInput): Promise<Site> {
+    const result = await this.client
+      .from("sites")
+      .insert({
+        organization_id: input.organizationId,
+        name: input.name.trim(),
+        city: input.city?.trim() || null,
+        address: input.address?.trim() || null,
+      })
+      .select(SITE_SELECT)
+      .single();
+    if (result.error) throw result.error;
+    return mapSite(result.data as unknown as SiteQueryRow);
+  }
+
+  async updateSite(id: string, patch: { name?: string; city?: string | null; address?: string | null; active?: boolean }): Promise<void> {
+    const payload: Database["public"]["Tables"]["sites"]["Update"] = {};
+    if (patch.name !== undefined) payload.name = patch.name.trim();
+    if (patch.city !== undefined) payload.city = patch.city?.trim() || null;
+    if (patch.address !== undefined) payload.address = patch.address?.trim() || null;
+    if (patch.active !== undefined) payload.active = patch.active;
+    const result = await this.client.from("sites").update(payload).eq("id", id);
+    if (result.error) throw result.error;
+  }
+
+  async createLocation(siteId: string, name: string): Promise<SiteLocation> {
+    const count = await this.client.from("site_locations").select("id", { count: "exact", head: true }).eq("site_id", siteId);
+    const result = await this.client
+      .from("site_locations")
+      .insert({ site_id: siteId, name: name.trim(), sort_order: (count.count ?? 0) + 1 })
+      .select("id, name, latitude, longitude")
+      .single();
+    if (result.error) throw result.error;
+    return { id: result.data.id, name: result.data.name, latitude: result.data.latitude, longitude: result.data.longitude };
+  }
+
+  async removeLocation(id: string): Promise<void> {
+    const result = await this.client.from("site_locations").delete().eq("id", id);
+    if (result.error) throw result.error;
+  }
+
+  async listRiskTypes(organizationId?: string | null): Promise<RiskType[]> {
+    let query = this.client.from("risk_types").select("*").eq("active", true).order("sort_order").order("label");
+    if (organizationId) query = query.eq("organization_id", organizationId);
+    const result = await query;
+    if (result.error) throw result.error;
+    return (result.data ?? []).map(mapRiskType);
+  }
+
+  async createRiskType(organizationId: string, label: string): Promise<RiskType> {
+    const result = await this.client
+      .from("risk_types")
+      .insert({ organization_id: organizationId, label: label.trim().slice(0, 80) })
+      .select("*")
+      .single();
+    if (result.error) throw result.error;
+    return mapRiskType(result.data);
+  }
+
+  async removeRiskType(id: string): Promise<void> {
+    const result = await this.client.from("risk_types").delete().eq("id", id);
+    if (result.error) throw result.error;
+  }
+
+  async listOrgPeople(organizationId: string): Promise<SitePerson[]> {
+    const result = await this.client.rpc("list_org_people", { p_organization_id: organizationId });
+    if (result.error) throw result.error;
+    return (result.data ?? []).map((row) => ({
+      id: row.id,
+      fullName: row.full_name,
+      role: mapRole(row.role),
+      employeeNo: row.employee_no,
+    }));
+  }
+
+  /** Runs on the server so a login can be created without signing the manager out. */
+  async createStaff(input: CreateStaffInput): Promise<CreateStaffResult> {
+    const response = await fetch("/api/admin/staff", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(input),
+    });
+    const body = (await response.json().catch(() => null)) as ({ ok?: boolean; error?: string } & Partial<CreateStaffResult>) | null;
+    if (!response.ok || !body?.ok || !body.profile || !body.login) {
+      throw new Error(body?.error || `Could not add the person (${response.status}).`);
+    }
+    return { profile: body.profile, login: body.login };
   }
 
   async trackIncident(code: string): Promise<TrackedIncident | null> {

@@ -3,6 +3,7 @@
 import { useMemo, useState } from "react";
 import { AwardIcon, DownloadIcon, FileSpreadsheetIcon, MedalIcon, TrophyIcon } from "lucide-react";
 import { toast } from "sonner";
+import { AiReportButton } from "@/components/ai/ai-report-dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -213,6 +214,7 @@ export function ReportsView() {
       </section>
 
       <div className="flex flex-wrap gap-2">
+        <AiReportButton incidents={inRange} scope={`${period.from} – ${period.to}`} />
         <Button type="button" variant="outline" className="h-12 gap-2" onClick={() => void exportCsv()} disabled={!inRange.length}>
           <FileSpreadsheetIcon className="size-4" />
           {t("reports.exportCsv")}

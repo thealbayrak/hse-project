@@ -84,6 +84,7 @@ export function summarize(all: Incident[], period: Period, today = stockholmDate
     "good-observation": 0,
     "positive-observation": 0,
     environmental: 0,
+    other: 0,
   };
   const bySeverity: Record<Severity, number> = { low: 0, medium: 0, high: 0, critical: 0 };
   const categoryCounts = new Map<RiskCategory, number>();

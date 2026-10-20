@@ -1,5 +1,12 @@
 import type {
   Audit,
+  CreateOrganizationInput,
+  CreateSiteInput,
+  CreateStaffInput,
+  CreateStaffResult,
+  Organization,
+  RiskType,
+  SiteLocation,
   ChecklistTemplate,
   Contact,
   CreateAuditInput,
@@ -82,6 +89,23 @@ export interface IncidentRepository {
   createAudit(input: CreateAuditInput, createdById: string | null): Promise<Audit>;
   /** Saves answers; with status "submitted" every failed item becomes a hazard with its due date and owner. */
   updateAudit(id: string, patch: UpdateAuditInput): Promise<Audit>;
+
+  // Companies and their settings (owner and managers)
+  listOrganizations(): Promise<Organization[]>;
+  createOrganization(input: CreateOrganizationInput): Promise<Organization>;
+  updateOrganization(id: string, patch: Partial<CreateOrganizationInput & { active: boolean }>): Promise<Organization>;
+  createSite(input: CreateSiteInput): Promise<Site>;
+  updateSite(id: string, patch: { name?: string; city?: string | null; address?: string | null; active?: boolean }): Promise<void>;
+  createLocation(siteId: string, name: string): Promise<SiteLocation>;
+  removeLocation(id: string): Promise<void>;
+  /** Public: the report form reads a company's own risk types without a login. */
+  listRiskTypes(organizationId?: string | null): Promise<RiskType[]>;
+  createRiskType(organizationId: string, label: string): Promise<RiskType>;
+  removeRiskType(id: string): Promise<void>;
+  /** People of a company for the reporter picker (no contact details). */
+  listOrgPeople(organizationId: string): Promise<SitePerson[]>;
+  /** Adds a person; with e-mail and password they also get a login. */
+  createStaff(input: CreateStaffInput): Promise<CreateStaffResult>;
 
   subscribeToIncidents?(handler: RealtimeIncidentHandler): () => void;
 }

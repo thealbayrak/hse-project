@@ -69,7 +69,7 @@ describe("categories", () => {
   });
 
   it("keeps unknown database values as other, empty as unclassified", () => {
-    expect(mapCategory("laser")).toBe("other");
+    expect(mapCategory("Laser cutting")).toBe("Laser cutting");
     expect(mapCategory("")).toBe("unclassified");
     expect(mapCategory("confined_space")).toBe("confined-space");
     expect(mapCategories(["falls", "unclassified", 3, "ppe"])).toEqual(["falls", "ppe"]);

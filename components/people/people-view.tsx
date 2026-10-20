@@ -11,7 +11,8 @@ import { buildTemplateWorkbook, parsePeopleFile } from "@/lib/people/import";
 import { useIncidentStore } from "@/lib/store/incident-store";
 import { panelClass } from "@/lib/tones";
 import { cn } from "@/lib/utils";
-import { ROLES, type Profile, type Role } from "@/lib/types";
+import { assignableRoles } from "@/lib/admin/staff-rules";
+import type { Profile, Role } from "@/lib/types";
 
 export function PeopleView() {
   const { t } = useLanguage();
@@ -180,10 +181,11 @@ export function PeopleView() {
                   <td className="px-3 py-2">
                     <select
                       value={person.role}
+                      disabled={!assignableRoles(role).includes(person.role)}
                       onChange={(event) => void patch(person.id, { role: event.target.value as Role })}
-                      className="h-10 rounded-lg border border-border bg-background px-2"
+                      className="h-10 rounded-lg border border-border bg-background px-2 disabled:opacity-60"
                     >
-                      {ROLES.map((item) => (
+                      {(assignableRoles(role).includes(person.role) ? assignableRoles(role) : [person.role]).map((item) => (
                         <option key={item} value={item}>
                           {t(`roleNames.${item}`)}
                         </option>

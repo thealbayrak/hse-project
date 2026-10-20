@@ -4,11 +4,12 @@ export type IncidentType =
   | "accident"
   | "good-observation"
   | "positive-observation"
-  | "environmental";
+  | "environmental"
+  | "other";
 export type Severity = "low" | "medium" | "high" | "critical";
 export type IncidentStatus = "open" | "in-progress" | "resolved";
-/** Open list; "unclassified" means the reporter left it for the safety team. */
-export type RiskCategory =
+/** Built-in risk types; companies add their own (stored as plain text). */
+export type BuiltInRiskCategory =
   | "falls"
   | "machine"
   | "falling-objects"
@@ -27,6 +28,9 @@ export type RiskCategory =
   | "psychosocial"
   | "other"
   | "unclassified";
+
+/** A built-in key or a company's own risk type label. "unclassified" means nobody picked one yet. */
+export type RiskCategory = BuiltInRiskCategory | (string & {});
 
 /** Report types that praise good practice rather than flag danger. */
 export const POSITIVE_TYPES: IncidentType[] = ["good-observation", "positive-observation"];
@@ -51,6 +55,8 @@ export interface Site {
   organizationName?: string;
   latitude?: number | null;
   longitude?: number | null;
+  /** Hidden from the report form when false. */
+  active?: boolean;
   locations: SiteLocation[];
 }
 
@@ -68,10 +74,17 @@ export interface Incident {
   id: string;
   reference: string;
   type: IncidentType;
+  /** Empty when the reporter did not pick a site (only the company is known). */
   siteId: string;
   locationId: string;
   siteName?: string;
   locationName?: string;
+  /** Company (tenant) the report belongs to. */
+  organizationId?: string | null;
+  /** Free-text place or area the reporter typed when it was not in the list. */
+  locationNote?: string | null;
+  /** Free-text type when the reporter chose "other". */
+  typeNote?: string | null;
   /** All areas the reporter marked; `locationId` is the first of them (may be empty). */
   locationIds?: string[];
   /** First risk type, or "unclassified" until the safety team assigns one. */
@@ -120,7 +133,11 @@ export function incidentCategories(incident: Pick<Incident, "category" | "catego
 
 export interface CreateIncidentInput {
   type: IncidentType;
+  /** "" when no site was picked; then organizationId says which company it is for. */
   siteId: string;
+  organizationId?: string | null;
+  locationNote?: string | null;
+  typeNote?: string | null;
   /** First area, or "" when the reporter did not pick one. */
   locationId: string;
   locationIds?: string[];
@@ -184,8 +201,13 @@ export interface SafetyOfficer {
 
 export interface ReportDraft {
   type: IncidentType | null;
+  typeNote: string;
   siteId: string;
+  /** Typed place when it is not in the list. */
+  placeNote: string;
   locationIds: string[];
+  /** Typed areas when they are not in the list. */
+  areaNotes: string[];
   categories: RiskCategory[];
   severity: Severity | null;
   description: string;
@@ -269,6 +291,18 @@ export interface IncidentAnalysis {
   riskLevel: Severity;
   meetingRecommended: boolean;
   meetingAgenda: string[];
+}
+
+/** Assistant-written management report over a set of incidents. */
+export interface AiReport {
+  title: string;
+  summary: string;
+  keyFigures: { label: string; value: string }[];
+  trends: string[];
+  topRisks: { risk: string; count: number; comment: string }[];
+  hotspots: string[];
+  recommendations: string[];
+  positives: string[];
 }
 
 export interface Contact {
@@ -451,6 +485,58 @@ export interface UpdateAuditInput {
   note?: string;
   assigneeId?: string | null;
   dueDate?: string | null;
+}
+
+// ---------------------------------------------------------------------------
+// Companies, settings, staff
+// ---------------------------------------------------------------------------
+
+export interface Organization {
+  id: string;
+  name: string;
+  organizationNumber: string | null;
+  address: string | null;
+  industry: string | null;
+  active: boolean;
+}
+
+export interface CreateOrganizationInput {
+  name: string;
+  organizationNumber?: string | null;
+  address?: string | null;
+  industry?: string | null;
+}
+
+export interface RiskType {
+  id: string;
+  organizationId: string;
+  label: string;
+  active: boolean;
+}
+
+export interface CreateSiteInput {
+  organizationId: string;
+  name: string;
+  city?: string | null;
+  address?: string | null;
+}
+
+export interface CreateStaffInput {
+  fullName: string;
+  role: Role;
+  organizationId?: string | null;
+  siteId?: string | null;
+  email?: string | null;
+  /** Given only when the person should be able to sign in. */
+  password?: string | null;
+  phone?: string | null;
+  employeeNo?: string | null;
+}
+
+export interface CreateStaffResult {
+  profile: Profile;
+  /** created: can sign in now; confirm: must confirm the e-mail first; existing: account already existed; none: no login. */
+  login: "created" | "confirm" | "existing" | "none";
 }
 
 export interface NearbyPlace {

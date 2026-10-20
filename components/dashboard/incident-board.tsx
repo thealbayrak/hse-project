@@ -146,7 +146,7 @@ function BoardCard({
           <span className="font-mono text-amber-700 dark:text-amber-300">{incident.reference}</span>
           <span className="text-muted-foreground">{relativeTime(incident.createdAt, locale)}</span>
         </p>
-        <p className="mt-1 truncate text-sm font-semibold">{typeLabel(incident.type, locale)}</p>
+        <p className="mt-1 truncate text-sm font-semibold">{typeLabel(incident.type, locale, incident.typeNote)}</p>
         <p className="truncate text-xs text-muted-foreground">
           {placeLabel(incident)} · {categoryLabel(incident.category, locale)}
         </p>

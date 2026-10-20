@@ -135,7 +135,7 @@ export function TasksView() {
           <div className="space-y-2">
             <Label htmlFor="task-assignee">{t("tasks.assignee")}</Label>
             <select id="task-assignee" value={assigneeId} onChange={(event) => setAssigneeId(event.target.value)} className="h-12 w-full rounded-lg border border-border bg-background px-3">
-              <option value="">{t("tasks.unassigned")}</option>
+              <option value="">{people.length ? t("tasks.unassigned") : t("tasks.noPeople")}</option>
               {people.map((person) => (
                 <option key={person.id} value={person.id}>
                   {person.fullName} · {t(`roleNames.${person.role}`)}
@@ -143,6 +143,14 @@ export function TasksView() {
               ))}
             </select>
           </div>
+          {people.length === 0 && (
+            <p className="rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-sm sm:col-span-2">
+              {t("tasks.noPeopleHint")}{" "}
+              <a href="/settings" className="font-semibold underline underline-offset-2">
+                {t("home.settings")}
+              </a>
+            </p>
+          )}
           <div className="space-y-2">
             <Label htmlFor="task-priority">{t("tasks.priority")}</Label>
             <select id="task-priority" value={priority} onChange={(event) => setPriority(event.target.value as TaskPriority)} className="h-12 w-full rounded-lg border border-border bg-background px-3">

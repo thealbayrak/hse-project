@@ -1,6 +1,7 @@
-import type { ReportAnalysis } from "@/lib/ai/provider";
+import type { CompactIncident } from "@/lib/ai/context";
+import type { AssistantTurn, ReportAnalysis } from "@/lib/ai/provider";
 import type { Locale } from "@/lib/i18n/translations";
-import type { Incident, IncidentAnalysis, Site } from "@/lib/types";
+import type { AiReport, Incident, IncidentAnalysis, Site } from "@/lib/types";
 
 /** Officer-side: analyse an incident the user is looking at. */
 export async function analyzeIncident(incident: Incident, language: Locale): Promise<IncidentAnalysis> {
@@ -52,4 +53,39 @@ export function languageName(code: string, uiLocale: Locale) {
   } catch {
     return code;
   }
+}
+
+/** Management report over the incidents in view. */
+export async function generateManagementReport(input: {
+  incidents: CompactIncident[];
+  language: Locale;
+  scope: string;
+  company?: string | null;
+}): Promise<AiReport> {
+  const response = await fetch("/api/ai/report", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input),
+  });
+  const body = (await response.json().catch(() => null)) as { ok?: boolean; report?: AiReport; error?: string } | null;
+  if (!response.ok || !body?.ok || !body.report) throw new Error(body?.error || `Report failed (${response.status}).`);
+  return body.report;
+}
+
+/** One question to the assistant, with the conversation so far. */
+export async function askAssistant(input: {
+  question: string;
+  history: AssistantTurn[];
+  incidents: CompactIncident[];
+  language: Locale;
+  company?: string | null;
+}): Promise<string> {
+  const response = await fetch("/api/ai/assistant", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input),
+  });
+  const body = (await response.json().catch(() => null)) as { ok?: boolean; answer?: string; error?: string } | null;
+  if (!response.ok || !body?.ok || typeof body.answer !== "string") throw new Error(body?.error || `Assistant failed (${response.status}).`);
+  return body.answer;
 }

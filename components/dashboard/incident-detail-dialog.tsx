@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { CalendarPlusIcon, DownloadIcon, FileText, Loader2Icon, SparklesIcon } from "lucide-react";
 import { downloadIncidentPdf } from "@/lib/export";
 import { toast } from "sonner";
@@ -54,7 +54,25 @@ export function IncidentDetailDialog({
 }
 
 function IncidentDetail({ incident, onClose }: { incident: Incident; onClose: () => void }) {
-  const { sites, updateCapa } = useIncidentStore();
+  const { sites, updateCapa, listRiskTypes } = useIncidentStore();
+  const [ownRisks, setOwnRisks] = useState<string[]>([]);
+  useEffect(() => {
+    if (!incident.organizationId) return;
+    let cancelled = false;
+    listRiskTypes(incident.organizationId)
+      .then((rows) => {
+        if (!cancelled) setOwnRisks(rows.map((row) => row.label));
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, [incident.organizationId, listRiskTypes]);
+  const riskChoices = [
+    ...RISK_CATEGORIES.map((item) => item.id as string),
+    ...ownRisks,
+    ...incidentCategories(incident),
+  ].filter((value, index, list) => list.indexOf(value) === index);
   const { locale, t } = useLanguage();
   const [assigneeId, setAssigneeId] = useState<string>(
     () => incident.capa?.assigneeId || SAFETY_OFFICERS[0].id
@@ -103,7 +121,7 @@ function IncidentDetail({ incident, onClose }: { incident: Incident; onClose: ()
       <DialogHeader>
         <DialogTitle className="font-mono text-amber-700 dark:text-amber-300">{incident.reference}</DialogTitle>
         <DialogDescription>
-          {typeLabel(incident.type, locale)} · {placeLabel(incident)}
+          {typeLabel(incident.type, locale, incident.typeNote)} · {placeLabel(incident)}
         </DialogDescription>
       </DialogHeader>
 
@@ -230,7 +248,8 @@ function IncidentDetail({ incident, onClose }: { incident: Incident; onClose: ()
           <div className="space-y-2 sm:col-span-2">
             <Label>{t("dashboard.categoriesLabel")}</Label>
             <div className="flex flex-wrap gap-1.5">
-              {RISK_CATEGORIES.map((item) => {
+              {riskChoices.map((id) => {
+                const item = { id };
                 const active = categories.includes(item.id);
                 return (
                   <button

@@ -9,6 +9,7 @@ import type {
   SafetyWalkItemRow,
   SafetyWalkRow,
   SiteRow,
+  RiskTypeRow,
   TaskRow,
   TemplateRow,
 } from "@/lib/supabase/database.types";
@@ -20,6 +21,8 @@ import type {
   ChecklistItem,
   ChecklistTemplate,
   Contact,
+  Organization,
+  RiskType,
   Incident,
   IncidentAnalysis,
   IncidentStatus,
@@ -101,7 +104,8 @@ export function mapIncidentType(value: string): IncidentType {
   if (normalized === "good-observation") return "good-observation";
   if (normalized === "positive-observation") return "positive-observation";
   if (normalized === "environmental" || normalized === "environmental-incident") return "environmental";
-  return "accident";
+  if (normalized === "accident" || normalized === "olycka" || normalized === "olycksfall") return "accident";
+  return "other";
 }
 
 const KNOWN_CATEGORIES: RiskCategory[] = [
@@ -148,11 +152,12 @@ export function mapStatus(value: string): IncidentStatus {
   return "open";
 }
 
-/** Unknown values are kept as "other" so nothing is silently re-labelled as a machine risk. */
+/** Built-in keys are normalised; anything else is a company's own risk type and kept as written. */
 export function mapCategory(value: string | null | undefined): RiskCategory {
-  const normalized = (value ?? "").trim().toLowerCase().replaceAll("_", "-");
+  const raw = (value ?? "").trim();
+  const normalized = raw.toLowerCase().replaceAll("_", "-");
   if (!normalized) return "unclassified";
-  return KNOWN_CATEGORIES.includes(normalized as RiskCategory) ? (normalized as RiskCategory) : "other";
+  return KNOWN_CATEGORIES.includes(normalized as RiskCategory) ? (normalized as RiskCategory) : raw.slice(0, 80);
 }
 
 export function mapCapa(row: ActionRow | null): CapaAction | null {
@@ -183,9 +188,12 @@ export function mapIncident(row: IncidentQueryRow, mediaUrl: MediaUrlResolver = 
     id: row.id,
     reference: row.reference || `SS-${row.id.slice(0, 8).toUpperCase()}`,
     type: mapIncidentType(row.type),
-    siteId: row.site_id,
+    typeNote: row.type_note ?? null,
+    siteId: row.site_id ?? "",
+    organizationId: row.organization_id ?? null,
+    locationNote: row.location_note ?? null,
     locationId: row.location_id ?? location?.id ?? "",
-    siteName: site?.name,
+    siteName: site?.name ?? undefined,
     locationName: location?.name ?? row.location ?? undefined,
     locationIds: Array.isArray(row.location_ids) && row.location_ids.length ? row.location_ids : row.location_id ? [row.location_id] : [],
     category: mapCategories(row.categories)[0] ?? mapCategory(row.category),
@@ -244,7 +252,8 @@ export function mapSite(row: SiteQueryRow): Site {
     organizationName: org?.name,
     latitude: row.latitude ?? null,
     longitude: row.longitude ?? null,
-    locations: locations.length ? locations : [{ id: row.id, name: row.name }],
+    active: row.active ?? true,
+    locations,
   };
 }
 
@@ -565,4 +574,19 @@ export function toSafetyWalkSummary(walk: SafetyWalk): SafetyWalkSummary {
     resolvedDeviations,
     activeDeviations: deviations.length - resolvedDeviations,
   };
+}
+
+export function mapOrganization(row: OrganizationRow): Organization {
+  return {
+    id: row.id,
+    name: row.name,
+    organizationNumber: row.organization_number ?? null,
+    address: row.address ?? null,
+    industry: row.industry ?? null,
+    active: row.active ?? true,
+  };
+}
+
+export function mapRiskType(row: RiskTypeRow): RiskType {
+  return { id: row.id, organizationId: row.organization_id, label: row.label, active: row.active };
 }

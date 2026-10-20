@@ -16,6 +16,8 @@ export interface Database {
           name: string;
           organization_number: string | null;
           address: string | null;
+          industry: string | null;
+          active: boolean;
           created_at: string;
         };
         Insert: {
@@ -23,6 +25,8 @@ export interface Database {
           name: string;
           organization_number?: string | null;
           address?: string | null;
+          industry?: string | null;
+          active?: boolean;
           created_at?: string;
         };
         Update: Partial<Database["public"]["Tables"]["organizations"]["Insert"]>;
@@ -37,12 +41,14 @@ export interface Database {
           address: string | null;
           latitude: number | null;
           longitude: number | null;
+          active: boolean;
           created_at: string;
         };
         Insert: {
           id?: string;
           organization_id?: string | null;
           name: string;
+          active?: boolean;
           city?: string | null;
           address?: string | null;
           latitude?: number | null;
@@ -77,7 +83,7 @@ export interface Database {
           id: string;
           reference: string | null;
           organization_id: string | null;
-          site_id: string;
+          site_id: string | null;
           location_id: string | null;
           location: string | null;
           type: string;
@@ -104,6 +110,8 @@ export interface Database {
           location_ids: string[];
           categories: string[];
           audit_id: string | null;
+          location_note: string | null;
+          type_note: string | null;
           created_at: string;
           updated_at: string | null;
         };
@@ -111,9 +119,11 @@ export interface Database {
           id?: string;
           reference?: string | null;
           organization_id?: string | null;
-          site_id: string;
+          site_id?: string | null;
           location_id?: string | null;
           location_ids?: string[];
+          location_note?: string | null;
+          type_note?: string | null;
           location?: string | null;
           type: string;
           category?: string;
@@ -216,6 +226,26 @@ export interface Database {
           updated_at?: string | null;
         };
         Update: Partial<Database["public"]["Tables"]["tasks"]["Insert"]>;
+        Relationships: [];
+      };
+      risk_types: {
+        Row: {
+          id: string;
+          organization_id: string;
+          label: string;
+          active: boolean;
+          sort_order: number;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          organization_id: string;
+          label: string;
+          active?: boolean;
+          sort_order?: number;
+          created_at?: string;
+        };
+        Update: Partial<Database["public"]["Tables"]["risk_types"]["Insert"]>;
         Relationships: [];
       };
       checklist_templates: {
@@ -468,7 +498,7 @@ export interface Database {
       submit_incident: {
         Args: {
           p_id: string;
-          p_site_id: string;
+          p_site_id: string | null;
           p_location_id: string | null;
           p_type: string;
           p_category: string;
@@ -486,12 +516,23 @@ export interface Database {
           p_longitude?: number | null;
           p_location_ids?: string[];
           p_categories?: string[];
+          p_organization_id?: string | null;
+          p_location_note?: string | null;
+          p_type_note?: string | null;
         };
         Returns: { id: string; reference: string; created_at: string; tracking_code: string | null }[];
       };
       audit_open_nonconformities: {
         Args: { p_audit_id: string };
         Returns: number;
+      };
+      list_org_people: {
+        Args: { p_organization_id: string };
+        Returns: { id: string; full_name: string; role: string; employee_no: string | null }[];
+      };
+      current_profile: {
+        Args: Record<string, never>;
+        Returns: Database["public"]["Tables"]["profiles"]["Row"];
       };
       list_site_people: {
         Args: { p_site_id: string };
@@ -567,5 +608,6 @@ export type SafetyWalkItemRow = Database["public"]["Tables"]["safety_walk_items"
 export type ClaimedAlertRow = Database["public"]["Functions"]["claim_incident_alert"]["Returns"][number];
 export type ProfileRow = Database["public"]["Tables"]["profiles"]["Row"];
 export type TaskRow = Database["public"]["Tables"]["tasks"]["Row"];
+export type RiskTypeRow = Database["public"]["Tables"]["risk_types"]["Row"];
 export type TemplateRow = Database["public"]["Tables"]["checklist_templates"]["Row"];
 export type AuditRow = Database["public"]["Tables"]["audits"]["Row"];

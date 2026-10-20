@@ -1,5 +1,6 @@
 import type { Locale } from "@/lib/i18n/translations";
-import type { Incident, IncidentAnalysis, IncidentType, RiskCategory, Site } from "@/lib/types";
+import type { CompactIncident, IncidentStats } from "@/lib/ai/context";
+import type { AiReport, Incident, IncidentAnalysis, IncidentType, RiskCategory, Site } from "@/lib/types";
 
 /** What the assistant extracts from a worker's spoken or written report. */
 export interface ReportAnalysis {
@@ -37,8 +38,38 @@ export interface IncidentAnalysisInput {
   language: Locale;
 }
 
+export interface ManagementReportInput {
+  language: Locale;
+  /** Company (tenant) the report is for, when known. */
+  company: string | null;
+  /** Human-readable scope, e.g. "2026-10-01 – 2026-10-20 · Observations". */
+  scope: string;
+  incidents: CompactIncident[];
+  stats: IncidentStats;
+}
+
+export interface AssistantTurn {
+  role: "user" | "assistant";
+  text: string;
+}
+
+export interface AssistantInput {
+  language: Locale;
+  company: string | null;
+  question: string;
+  history: AssistantTurn[];
+  incidents: CompactIncident[];
+  stats: IncidentStats;
+  /** Today in Europe/Stockholm, so "this week" means something. */
+  today: string;
+}
+
 export interface ReportAnalyzer {
   readonly name: string;
   analyze(input: AnalyzeInput): Promise<ReportAnalysis>;
   analyzeIncident(input: IncidentAnalysisInput): Promise<IncidentAnalysis>;
+  /** A written management report over many incidents. */
+  managementReport(input: ManagementReportInput): Promise<AiReport>;
+  /** Answers a question about the company's safety data. */
+  answer(input: AssistantInput): Promise<string>;
 }

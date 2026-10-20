@@ -9,14 +9,27 @@ const TYPE_KEY: Record<IncidentType, string> = {
   "good-observation": "incident.goodObservation",
   "positive-observation": "incident.positiveObservation",
   environmental: "incident.environmental",
+  other: "incident.other",
 };
 
-export function typeLabel(type: IncidentType, locale: Locale = "en") {
-  return translate(locale, TYPE_KEY[type] ?? "incident.hazard");
+const BUILT_IN_CATEGORIES = new Set([
+  "falls", "machine", "falling-objects", "slip-trip", "chemical", "electrical", "ergonomic", "ppe", "fire",
+  "traffic", "confined-space", "noise-vibration", "dust-air", "housekeeping", "environment-spill",
+  "psychosocial", "other", "unclassified",
+]);
+
+/** True for the app's own risk keys; anything else is a company's own label. */
+export function isBuiltInCategory(category: string) {
+  return BUILT_IN_CATEGORIES.has(category);
+}
+
+export function typeLabel(type: IncidentType, locale: Locale = "en", note?: string | null) {
+  if (type === "other" && note) return note;
+  return translate(locale, TYPE_KEY[type] ?? "incident.other");
 }
 
 export function categoryLabel(category: RiskCategory, locale: Locale = "en") {
-  return translate(locale, `category.${category}`);
+  return isBuiltInCategory(category) ? translate(locale, `category.${category}`) : category;
 }
 
 /** All risk types of an incident as one label; "not classified" when empty. */
@@ -70,9 +83,10 @@ export function relativeTime(iso: string, locale: Locale = "en") {
 }
 
 export function placeLabel(incident: Incident) {
-  const location = incident.locationName || locationLabel(incident.siteId, incident.locationId);
-  const site = incident.siteName || siteLabel(incident.siteId);
-  return `${location} · ${site}`;
+  const site = incident.siteName || (incident.siteId ? siteLabel(incident.siteId) : "");
+  const location = incident.locationName || (incident.locationId ? locationLabel(incident.siteId, incident.locationId) : "");
+  const parts = [location && location !== site ? location : "", site, incident.locationNote ?? ""].filter(Boolean);
+  return parts.length ? parts.join(" · ") : "—";
 }
 
 export function csvEscape(value: string) {

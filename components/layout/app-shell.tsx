@@ -12,9 +12,11 @@ import {
   LineChartIcon,
   LogOutIcon,
   QrCodeIcon,
+  SettingsIcon,
   ShieldCheckIcon,
   UsersIcon,
 } from "lucide-react";
+import { AssistantPanel } from "@/components/ai/assistant-panel";
 import { LanguageToggle } from "@/components/LanguageToggle";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { cn } from "@/lib/utils";
@@ -33,6 +35,7 @@ const NAV: { href: string; key: string; icon: typeof ShieldCheckIcon; permission
   { href: "/reports", key: "home.reports", icon: LineChartIcon, permission: "reports.view", mobile: true },
   { href: "/audits", key: "home.audits", icon: ClipboardCheckIcon, permission: "audits.conduct", mobile: false },
   { href: "/people", key: "home.people", icon: UsersIcon, permission: "people.manage", mobile: false },
+  { href: "/settings", key: "home.settings", icon: SettingsIcon, permission: "settings.manage", mobile: false },
   { href: "/projects", key: "home.projects", icon: QrCodeIcon, permission: "projects.manage", mobile: false },
 ];
 
@@ -143,6 +146,8 @@ export function AppShell({
         )}
         {children}
       </main>
+
+      {!pathname.startsWith("/report") && !pathname.startsWith("/track") && !pathname.startsWith("/login") && <AssistantPanel />}
 
       <nav
         data-app-tabbar

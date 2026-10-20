@@ -37,6 +37,13 @@ import { isSupabaseConfigured } from "@/lib/supabase/env";
 import type {
   Audit,
   ChecklistTemplate,
+  CreateOrganizationInput,
+  CreateSiteInput,
+  CreateStaffInput,
+  CreateStaffResult,
+  Organization,
+  RiskType,
+  SiteLocation,
   Contact,
   CreateAuditInput,
   CreateIncidentInput,
@@ -96,6 +103,20 @@ interface IncidentStoreValue {
   listAudits: () => Promise<Audit[]>;
   createAudit: (input: CreateAuditInput) => Promise<Audit>;
   updateAudit: (id: string, patch: UpdateAuditInput) => Promise<Audit>;
+  listOrganizations: () => Promise<Organization[]>;
+  createOrganization: (input: CreateOrganizationInput) => Promise<Organization>;
+  updateOrganization: (id: string, patch: Partial<CreateOrganizationInput & { active: boolean }>) => Promise<Organization>;
+  createSite: (input: CreateSiteInput) => Promise<Site>;
+  updateSite: (id: string, patch: { name?: string; city?: string | null; address?: string | null; active?: boolean }) => Promise<void>;
+  createLocation: (siteId: string, name: string) => Promise<SiteLocation>;
+  removeLocation: (id: string) => Promise<void>;
+  listRiskTypes: (organizationId?: string | null) => Promise<RiskType[]>;
+  createRiskType: (organizationId: string, label: string) => Promise<RiskType>;
+  removeRiskType: (id: string) => Promise<void>;
+  listOrgPeople: (organizationId: string) => Promise<SitePerson[]>;
+  createStaff: (input: CreateStaffInput) => Promise<CreateStaffResult>;
+  /** Re-reads sites and areas after settings changed. */
+  reloadSites: () => Promise<void>;
   updateStatus: (incidentId: string, status: IncidentStatus) => Promise<Incident>;
   saveIncidentAnalysis: (incidentId: string, analysis: IncidentAnalysis, language: string) => Promise<Incident>;
   listContacts: () => Promise<Contact[]>;
@@ -175,10 +196,13 @@ export function IncidentProvider({ children }: { children: React.ReactNode }) {
       cancelled = true;
     };
   }, [repository, sessionEmail]);
+  // Demo mode acts as the app owner so every screen is reachable.
   const role: Role | null = !usingSupabase
-    ? "hse_manager"
+    ? "super_admin"
     : session
-      ? (profile?.role ?? DEFAULT_SIGNED_IN_ROLE)
+      ? profile === undefined
+        ? null
+        : (profile?.role ?? DEFAULT_SIGNED_IN_ROLE)
       : null;
   void signedInEmail;
 
@@ -248,7 +272,7 @@ export function IncidentProvider({ children }: { children: React.ReactNode }) {
             current.includes(incident.id) ? current : [incident.id, ...current]
           );
           playAlertChime();
-          toast.message(`${typeLabel(incident.type, locale)}`, {
+          toast.message(`${typeLabel(incident.type, locale, incident.typeNote)}`, {
             description: incident.reference,
           });
           window.setTimeout(() => {
@@ -408,6 +432,52 @@ export function IncidentProvider({ children }: { children: React.ReactNode }) {
   );
   const updateTask = useCallback((id: string, patch: UpdateTaskInput) => repository.updateTask(id, patch), [repository]);
 
+  // Companies and settings
+  const reloadSites = useCallback(async () => {
+    setSites(await repository.listSites());
+  }, [repository]);
+  const listOrganizations = useCallback(() => repository.listOrganizations(), [repository]);
+  const createOrganization = useCallback((input: CreateOrganizationInput) => repository.createOrganization(input), [repository]);
+  const updateOrganization = useCallback(
+    (id: string, patch: Partial<CreateOrganizationInput & { active: boolean }>) => repository.updateOrganization(id, patch),
+    [repository]
+  );
+  const createSite = useCallback(
+    async (input: CreateSiteInput) => {
+      const created = await repository.createSite(input);
+      await reloadSites().catch(() => undefined);
+      return created;
+    },
+    [repository, reloadSites]
+  );
+  const updateSite = useCallback(
+    async (id: string, patch: { name?: string; city?: string | null; address?: string | null; active?: boolean }) => {
+      await repository.updateSite(id, patch);
+      await reloadSites().catch(() => undefined);
+    },
+    [repository, reloadSites]
+  );
+  const createLocation = useCallback(
+    async (siteId: string, name: string) => {
+      const created = await repository.createLocation(siteId, name);
+      await reloadSites().catch(() => undefined);
+      return created;
+    },
+    [repository, reloadSites]
+  );
+  const removeLocation = useCallback(
+    async (id: string) => {
+      await repository.removeLocation(id);
+      await reloadSites().catch(() => undefined);
+    },
+    [repository, reloadSites]
+  );
+  const listRiskTypes = useCallback((organizationId?: string | null) => repository.listRiskTypes(organizationId), [repository]);
+  const createRiskType = useCallback((organizationId: string, label: string) => repository.createRiskType(organizationId, label), [repository]);
+  const removeRiskType = useCallback((id: string) => repository.removeRiskType(id), [repository]);
+  const listOrgPeople = useCallback((organizationId: string) => repository.listOrgPeople(organizationId), [repository]);
+  const createStaff = useCallback((input: CreateStaffInput) => repository.createStaff(input), [repository]);
+
   // Checklist templates and audits
   const listTemplates = useCallback(() => repository.listTemplates(), [repository]);
   const createTemplate = useCallback(
@@ -472,6 +542,19 @@ export function IncidentProvider({ children }: { children: React.ReactNode }) {
       listAudits,
       createAudit,
       updateAudit,
+      listOrganizations,
+      createOrganization,
+      updateOrganization,
+      createSite,
+      updateSite,
+      createLocation,
+      removeLocation,
+      listRiskTypes,
+      createRiskType,
+      removeRiskType,
+      listOrgPeople,
+      createStaff,
+      reloadSites,
       updateStatus,
       saveIncidentAnalysis,
       listContacts,
@@ -510,6 +593,19 @@ export function IncidentProvider({ children }: { children: React.ReactNode }) {
       listAudits,
       createAudit,
       updateAudit,
+      listOrganizations,
+      createOrganization,
+      updateOrganization,
+      createSite,
+      updateSite,
+      createLocation,
+      removeLocation,
+      listRiskTypes,
+      createRiskType,
+      removeRiskType,
+      listOrgPeople,
+      createStaff,
+      reloadSites,
       updateStatus,
       saveIncidentAnalysis,
       listContacts,

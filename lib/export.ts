@@ -9,7 +9,7 @@ import {
   typeLabel,
 } from "@/lib/format";
 import { translate, type Locale } from "@/lib/i18n/translations";
-import { incidentCategories, type DashboardMetrics, type Incident } from "@/lib/types";
+import { incidentCategories, type AiReport, type DashboardMetrics, type Incident } from "@/lib/types";
 
 function siteName(incident: Incident) {
   return incident.siteName || siteLabel(incident.siteId);
@@ -50,7 +50,7 @@ export function incidentRows(incidents: Incident[], locale: Locale = "en") {
   const rows = incidents.map((incident) => [
     incident.reference,
     formatDateTime(incident.createdAt, locale),
-    typeLabel(incident.type, locale),
+    typeLabel(incident.type, locale, incident.typeNote),
     siteName(incident),
     locationName(incident),
     categoriesLabel(incidentCategories(incident), locale),
@@ -219,10 +219,10 @@ export async function downloadIncidentPdf(incident: Incident, locale: Locale = "
   const t = (key: string) => translate(locale, key);
   const doc = await createPdf();
   const autoTable = (await import("jspdf-autotable")).default;
-  pdfHeader(doc, `${incident.reference} · ${typeLabel(incident.type, locale)}`, `${siteName(incident)} · ${formatDateTime(incident.createdAt, locale)}`);
+  pdfHeader(doc, `${incident.reference} · ${typeLabel(incident.type, locale, incident.typeNote)}`, `${siteName(incident)} · ${formatDateTime(incident.createdAt, locale)}`);
 
   const facts: [string, string][] = [
-    [t("export.type"), typeLabel(incident.type, locale)],
+    [t("export.type"), typeLabel(incident.type, locale, incident.typeNote)],
     [t("export.site"), siteName(incident)],
     [t("export.area"), locationName(incident)],
     [t("export.risk"), categoriesLabel(incidentCategories(incident), locale)],
@@ -367,4 +367,75 @@ function triggerDownload(blob: Blob, filename: string) {
   link.click();
   link.remove();
   URL.revokeObjectURL(url);
+}
+
+/** The assistant's management report as a PDF. */
+export async function downloadAiReportPdf(report: AiReport, options: { locale?: Locale; scope?: string } = {}) {
+  const locale = options.locale ?? "en";
+  const t = (key: string) => translate(locale, key);
+  const doc = await createPdf();
+  const generated = new Date().toLocaleString("sv-SE", { timeZone: "Europe/Stockholm" });
+  pdfHeader(doc, report.title || t("aiReport.title"), [options.scope, `${t("export.generated")}: ${generated}`].filter(Boolean).join(" · "));
+
+  let y = 110;
+  const ensure = (height: number) => {
+    if (y + height > 790) {
+      doc.addPage();
+      y = 60;
+    }
+  };
+  const heading = (text: string) => {
+    ensure(40);
+    doc.setFont("DejaVu", "bold");
+    doc.setFontSize(10);
+    doc.setTextColor(180, 83, 9);
+    doc.text(text.toUpperCase(), 40, y + 14);
+    y += 22;
+  };
+  const paragraph = (text: string) => {
+    doc.setFont("DejaVu", "normal");
+    doc.setFontSize(9.5);
+    doc.setTextColor(15, 23, 42);
+    const lines = doc.splitTextToSize(text, 515) as string[];
+    for (const line of lines) {
+      ensure(13);
+      doc.text(line, 40, y + 10);
+      y += 13;
+    }
+    y += 4;
+  };
+  const bullets = (items: string[]) => items.forEach((item) => paragraph(`• ${item}`));
+
+  paragraph(report.summary);
+  if (report.keyFigures.length) {
+    heading(t("aiReport.keyFigures"));
+    bullets(report.keyFigures.map((item) => `${item.label}: ${item.value}`));
+  }
+  if (report.trends.length) {
+    heading(t("aiReport.trends"));
+    bullets(report.trends);
+  }
+  if (report.topRisks.length) {
+    heading(t("aiReport.topRisks"));
+    bullets(report.topRisks.map((item) => `${item.risk} (${item.count}) — ${item.comment}`));
+  }
+  if (report.hotspots.length) {
+    heading(t("aiReport.hotspots"));
+    bullets(report.hotspots);
+  }
+  if (report.recommendations.length) {
+    heading(t("aiReport.recommendations"));
+    report.recommendations.forEach((item, index) => paragraph(`${index + 1}. ${item}`));
+  }
+  if (report.positives.length) {
+    heading(t("aiReport.positives"));
+    bullets(report.positives);
+  }
+  ensure(30);
+  doc.setFont("DejaVu", "normal");
+  doc.setFontSize(8);
+  doc.setTextColor(100, 116, 139);
+  doc.text(t("aiReport.disclaimer"), 40, y + 14, { maxWidth: 515 });
+  pdfFooter(doc, locale);
+  doc.save(`sitesafety-ai-report-${stamp()}.pdf`);
 }
