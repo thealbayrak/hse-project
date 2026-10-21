@@ -93,6 +93,8 @@ interface IncidentStoreValue {
   trackIncident: (code: string) => Promise<TrackedIncident | null>;
   /** Profile of the signed-in person (undefined while resolving, null when not in the people list). */
   profile: Profile | null | undefined;
+  /** Why the profile could not be read (a database error), as opposed to simply not being in the list. */
+  profileError: string | null;
   /** Effective role: from the profile, the default for signed-in users without one, hse_manager in demo mode, null when signed out. */
   role: Role | null;
   listSitePeople: (siteId: string) => Promise<SitePerson[]>;
@@ -187,6 +189,7 @@ export function IncidentProvider({ children }: { children: React.ReactNode }) {
   // Demo mode has no session: act as an HSE manager so every screen is reachable.
   const [profile, setProfile] = useState<Profile | null | undefined>(usingSupabase ? undefined : null);
   const [signedInEmail, setSignedInEmail] = useState<string | null>(null);
+  const [profileError, setProfileError] = useState<string | null>(null);
   const sessionEmail = session?.user.email ?? null;
   useEffect(() => {
     if (!usingSupabase) return;
@@ -204,11 +207,13 @@ export function IncidentProvider({ children }: { children: React.ReactNode }) {
       .then((found) => {
         if (cancelled) return;
         setProfile(found);
+        setProfileError(null);
         setSignedInEmail(sessionEmail);
       })
-      .catch(() => {
+      .catch((caught: { message?: string }) => {
         if (!cancelled) {
           setProfile(null);
+          setProfileError(caught?.message ?? "unknown error");
           setSignedInEmail(sessionEmail);
         }
       });
@@ -582,6 +587,7 @@ export function IncidentProvider({ children }: { children: React.ReactNode }) {
       createSafetyWalk,
       trackIncident,
       profile,
+      profileError,
       role,
       listSitePeople,
       listProfiles,
@@ -642,6 +648,7 @@ export function IncidentProvider({ children }: { children: React.ReactNode }) {
       createSafetyWalk,
       trackIncident,
       profile,
+      profileError,
       role,
       listSitePeople,
       listProfiles,

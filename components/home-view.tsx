@@ -42,7 +42,7 @@ const STAFF_LINKS: { href: string; permission: Permission; titleKey: string; hin
 export function HomeView() {
   const { t } = useLanguage();
   const { enabled: authEnabled, session, email } = useAuth();
-  const { sites, profile, role, listTasks } = useIncidentStore();
+  const { sites, profile, profileError, role, listTasks } = useIncidentStore();
   const organisations = [...new Set(sites.map((site) => site.organizationName).filter(Boolean))] as string[];
   const signedIn = !authEnabled || Boolean(session);
   const staffLinks = STAFF_LINKS.filter((link) => can(role, link.permission));
@@ -150,7 +150,9 @@ export function HomeView() {
             )}
           </div>
           {signedIn && authEnabled && profile === null && (
-            <p className={cn("mt-3 rounded-xl border px-3 py-2 text-sm", panelClass.warning)}>{t("home.noProfile")}</p>
+            <p className={cn("mt-3 rounded-xl border px-3 py-2 text-sm", panelClass.warning)}>
+              {profileError ? t("home.profileError", { error: profileError }) : t("home.noProfile")}
+            </p>
           )}
           {signedIn && myOpenTasks !== null && myOpenTasks > 0 && (
             <Link href="/tasks" className={cn("mt-3 block rounded-xl border px-3 py-2 text-sm font-medium", panelClass.info)}>

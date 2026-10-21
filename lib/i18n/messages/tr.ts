@@ -538,6 +538,7 @@ export const tr: MessageTable = {
     settings: "Ayarlar",
     settingsHint: "Yerler, alanlar, risk türleri, personel",
     boardHint: "Bildirimleri aşamalardan geçir",
+    profileError: "Hesabın kişi listesinden okunamadı: {error}",
   },
   people: {
     title: "Kişiler ve roller",

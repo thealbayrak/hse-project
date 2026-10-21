@@ -537,6 +537,7 @@ export const en = {
     settings: "Settings",
     settingsHint: "Places, areas, risk types, staff",
     boardHint: "Drag reports through the stages",
+    profileError: "Your account could not be read from the people list: {error}",
   },
   people: {
     title: "People and roles",

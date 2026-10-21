@@ -539,6 +539,7 @@ export const sv: MessageTable = {
     settings: "Inställningar",
     settingsHint: "Platser, områden, risktyper, personal",
     boardHint: "Dra rapporter genom stegen",
+    profileError: "Ditt konto kunde inte läsas från personlistan: {error}",
   },
   people: {
     title: "Personer och roller",
