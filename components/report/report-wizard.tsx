@@ -27,18 +27,22 @@ import { StatutoryBanner } from "@/components/layout/statutory-banner";
 import { ChoicePicker } from "@/components/report/choice-picker";
 import { LocationPicker, type LatLng } from "@/components/report/location-picker";
 import { NearbyPlaces } from "@/components/report/nearby-places";
+import { Turnstile, TURNSTILE_SITE_KEY } from "@/components/report/turnstile";
 import { useVoiceCapture } from "@/hooks/use-voice-capture";
 import { analyzeReport, languageName } from "@/lib/ai/client";
 import type { ReportAnalysis } from "@/lib/ai/provider";
 import { DEFAULT_REPORTER_NAME, INCIDENT_TYPES, RISK_CATEGORIES } from "@/lib/constants";
+import { useBrand } from "@/components/brand-context";
+import { useAuth } from "@/lib/auth/auth-context";
 import { useLanguage } from "@/lib/i18n/LanguageContext";
+import { getDeviceId } from "@/lib/report/device";
 import { isImageFile } from "@/lib/media";
 import { readLastSite, rememberLastSite, serverLastSite, subscribeLastSite } from "@/lib/report/last-site";
 import { useIncidentStore } from "@/lib/store/incident-store";
 import { categoriesLabel, categoryLabel, severityLabel, typeLabel } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { panelClass, severityClass } from "@/lib/tones";
-import { isPositiveType, type IncidentType, type ReportDraft, type Severity, type SitePerson } from "@/lib/types";
+import { isPositiveType, type IncidentType, type ReportDraft, type ReportTarget, type Severity, type SitePerson } from "@/lib/types";
 
 const TYPE_HINT: Record<IncidentType, string> = {
   "near-miss": "incident.nearMissHint",
@@ -62,6 +66,8 @@ interface Draft extends Omit<ReportDraft, "severity"> {
   aiConfidence: number | null;
   position: LatLng | null;
   reporter: SitePerson | null;
+  /** A name typed by hand when the worker is not in the list; optional. */
+  reporterText: string;
   /** Company the worker works for (free text or from the company's list). */
   subcontractor: string;
   /** E-mail left to become a permanent user; goes to the approval queue, never onto the report. */
@@ -82,13 +88,14 @@ const EMPTY_DRAFT: Draft = {
   mediaUrls: [],
   photoFiles: [],
   audioFile: null,
-  anonymous: false,
+  anonymous: true,
   summarySv: null,
   originalLanguage: null,
   originalText: null,
   aiConfidence: null,
   position: null,
   reporter: null,
+  reporterText: "",
   subcontractor: "",
   joinEmail: "",
 };
@@ -102,11 +109,50 @@ type AnalysisState =
 export function ReportWizard({ aiEnabled = false }: { aiEnabled?: boolean }) {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const projectId = searchParams.get("project_id") ?? searchParams.get("project") ?? searchParams.get("site");
-  const orgParam = searchParams.get("org");
+  const reportKey = searchParams.get("k");
+  const { enabled: authEnabled, session } = useAuth();
+  // Signed-in people of the company (and the demo) report without a QR code; everyone else needs the current one.
+  const trusted = !authEnabled || Boolean(session);
   const { locale, t } = useLanguage();
-  const { sites, createIncident, loading, error, listSitePeople, listOrgPeople, listRiskTypes, listOrganizations, listSubcontractors, requestMembership } =
-    useIncidentStore();
+  const {
+    sites,
+    createIncident,
+    loading,
+    error,
+    listSitePeople,
+    listOrgPeople,
+    listRiskTypes,
+    listOrganizations,
+    listSubcontractors,
+    requestMembership,
+    resolveReportKey,
+  } = useIncidentStore();
+  const [resolvedKey, setResolvedKey] = useState<{ key: string; target: ReportTarget | null } | null>(null);
+  const [honey, setHoney] = useState("");
+  const [humanToken, setHumanToken] = useState<string | null>(null);
+  const humanRequired = Boolean(TURNSTILE_SITE_KEY) && !trusted;
+
+  useEffect(() => {
+    if (!reportKey) return;
+    let cancelled = false;
+    resolveReportKey(reportKey)
+      .then((target) => {
+        if (!cancelled) setResolvedKey({ key: reportKey, target });
+      })
+      .catch(() => {
+        if (!cancelled) setResolvedKey({ key: reportKey, target: null });
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [reportKey, resolveReportKey]);
+  // undefined while the code is being checked, null when it is unknown or has been replaced.
+  // On a company address a code that belongs to another company does not open the form.
+  const brand = useBrand();
+  const rawTarget = reportKey && resolvedKey?.key === reportKey ? resolvedKey.target : undefined;
+  const keyTarget = rawTarget && brand && rawTarget.slug && rawTarget.slug !== brand.slug ? null : rawTarget;
+  const projectId = keyTarget?.siteId ?? (trusted ? (searchParams.get("project_id") ?? searchParams.get("project") ?? searchParams.get("site")) : null);
+  const orgParam = keyTarget?.organizationId ?? (trusted ? searchParams.get("org") : null);
   const [showMap, setShowMap] = useState(false);
   const [companyRisks, setCompanyRisks] = useState<{ orgId: string; labels: string[] } | null>(null);
   const [companySubs, setCompanySubs] = useState<{ orgId: string; names: string[] } | null>(null);
@@ -352,8 +398,24 @@ export function ReportWizard({ aiEnabled = false }: { aiEnabled?: boolean }) {
 
   async function submit() {
     if (!step2Ready) return;
+    // A hidden field only a script fills in: pretend it worked and send nothing.
+    if (honey.trim()) {
+      setSubmitted({ reference: "SS-0000", pending: false, trackingCode: null });
+      return;
+    }
     setSubmitting(true);
     try {
+      if (humanRequired) {
+        const check = await fetch("/api/report/verify", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ token: humanToken }),
+        }).catch(() => null);
+        if (!check?.ok) {
+          toast.error(t("report.humanFailed"));
+          return;
+        }
+      }
       const reporter = draft.anonymous ? null : draft.reporter;
       const locationNote = [draft.placeNote.trim(), ...draft.areaNotes.map((note) => note.trim())].filter(Boolean).join(" · ");
       const created = await createIncident({
@@ -375,7 +437,9 @@ export function ReportWizard({ aiEnabled = false }: { aiEnabled?: boolean }) {
         photoFiles: draft.photoFiles,
         audioFile: voice.audioBlob ?? draft.audioFile,
         anonymous: draft.anonymous,
-        reporterName: draft.anonymous ? null : (reporter?.fullName ?? DEFAULT_REPORTER_NAME),
+        reporterName: draft.anonymous ? null : (reporter?.fullName ?? (draft.reporterText.trim() || DEFAULT_REPORTER_NAME)),
+        reportKey,
+        device: trusted ? null : getDeviceId(),
         reporterProfileId: reporter?.id ?? null,
         latitude: draft.position?.latitude ?? null,
         longitude: draft.position?.longitude ?? null,
@@ -397,7 +461,12 @@ export function ReportWizard({ aiEnabled = false }: { aiEnabled?: boolean }) {
       });
       toast.success(created.pending ? t("offline.queued") : t("toast.reportReceived"));
     } catch (caught) {
-      const message = caught instanceof Error ? caught.message : t("toast.reportFailed");
+      const raw = caught instanceof Error ? caught.message : (caught as { message?: string } | null)?.message || "";
+      const message = /too many/i.test(raw)
+        ? t("report.tooMany")
+        : /qr code is not valid/i.test(raw)
+          ? t("report.keyInvalidBody")
+          : raw || t("toast.reportFailed");
       toast.error(message);
     } finally {
       setSubmitting(false);
@@ -413,6 +482,44 @@ export function ReportWizard({ aiEnabled = false }: { aiEnabled?: boolean }) {
     setShowMap(false);
     setStep(0);
     voice.clearAudio();
+  }
+
+  if (authEnabled && session === undefined && !reportKey) {
+    return (
+      <div className="mx-auto flex max-w-xl items-center justify-center gap-2 py-16 text-sm text-muted-foreground">
+        <Loader2Icon className="size-4 animate-spin" />
+      </div>
+    );
+  }
+  if (!trusted && !reportKey) {
+    return (
+      <div className="mx-auto max-w-xl">
+        <div className={cn("rounded-2xl border p-6 text-center", panelClass.info)}>
+          <QrCodeIcon className="mx-auto mb-3 size-10" />
+          <h2 className="text-xl font-semibold">{t("report.scanTitle")}</h2>
+          <p className="mt-2 text-sm leading-relaxed opacity-85">{t("report.scanBody")}</p>
+        </div>
+      </div>
+    );
+  }
+  if (!trusted && keyTarget === undefined) {
+    return (
+      <div className="mx-auto flex max-w-xl items-center justify-center gap-2 py-16 text-sm text-muted-foreground">
+        <Loader2Icon className="size-4 animate-spin" />
+        {t("report.checkingCode")}
+      </div>
+    );
+  }
+  if (!trusted && keyTarget === null) {
+    return (
+      <div className="mx-auto max-w-xl">
+        <div className={cn("rounded-2xl border p-6 text-center", panelClass.warning)}>
+          <QrCodeIcon className="mx-auto mb-3 size-10" />
+          <h2 className="text-xl font-semibold">{t("report.keyInvalidTitle")}</h2>
+          <p className="mt-2 text-sm leading-relaxed opacity-85">{t("report.keyInvalidBody")}</p>
+        </div>
+      </div>
+    );
   }
 
   if (submitted) {
@@ -854,6 +961,24 @@ export function ReportWizard({ aiEnabled = false }: { aiEnabled?: boolean }) {
             </p>
           </div>
 
+          {!draft.anonymous && !draft.reporter && (
+            <div>
+              <label htmlFor="reporter-name" className="mb-1 block text-lg font-semibold">
+                {t("report.yourName")}
+              </label>
+              <p className="mb-2 text-sm text-muted-foreground">{t("report.yourNameHint")}</p>
+              <input
+                id="reporter-name"
+                type="text"
+                autoComplete="name"
+                maxLength={120}
+                value={draft.reporterText}
+                onChange={(event) => patch({ reporterText: event.target.value })}
+                placeholder={t("report.yourNamePlaceholder")}
+                className="h-12 w-full rounded-xl border border-border bg-background px-4 text-base"
+              />
+            </div>
+          )}
           {!draft.anonymous && peopleOnSite.length > 0 && (
             <fieldset>
               <legend className="mb-1 text-lg font-semibold">{t("reporter.title")}</legend>
@@ -932,7 +1057,7 @@ export function ReportWizard({ aiEnabled = false }: { aiEnabled?: boolean }) {
           </div>
           <ReviewRow
             label={t("report.reporter")}
-            value={draft.anonymous ? t("report.anonymousPerson") : (draft.reporter?.fullName ?? t("report.siteWorker"))}
+            value={draft.anonymous ? t("report.anonymousPerson") : (draft.reporter?.fullName ?? (draft.reporterText.trim() || t("report.siteWorker")))}
           />
           {draft.position && (
             <ReviewRow label={t("map.title")} value={`${draft.position.latitude.toFixed(5)}, ${draft.position.longitude.toFixed(5)}`} />
@@ -966,6 +1091,18 @@ export function ReportWizard({ aiEnabled = false }: { aiEnabled?: boolean }) {
             </p>
           )}
           <StatutoryBanner compact />
+          {/* Honeypot: people never see this field; a script that fills every input gives itself away. */}
+          <input
+            type="text"
+            name="website"
+            tabIndex={-1}
+            autoComplete="off"
+            aria-hidden="true"
+            value={honey}
+            onChange={(event) => setHoney(event.target.value)}
+            className="absolute -left-[9999px] h-0 w-0 opacity-0"
+          />
+          {humanRequired && <Turnstile onToken={setHumanToken} />}
         </section>
       )}
 
@@ -1001,7 +1138,7 @@ export function ReportWizard({ aiEnabled = false }: { aiEnabled?: boolean }) {
           <Button
             type="button"
             className="h-14 text-base"
-            disabled={submitting || !step2Ready}
+            disabled={submitting || !step2Ready || (humanRequired && !humanToken)}
             onClick={() => void submit()}
           >
             {submitting

@@ -281,6 +281,11 @@ function IncidentDetail({ incident, onClose }: { incident: Incident; onClose: ()
                 )}
               </div>
             )}
+            {incident.outsideArea === true && (
+              <p className={cn("rounded-lg border px-3 py-2 text-sm", panelClass.warning)}>
+                {t("flag.outsideAreaDetail", { m: incident.distanceM ?? 0 })}
+              </p>
+            )}
             {severity === "unrated" && (
               <p className={cn("rounded-lg border px-3 py-2 text-sm font-medium", severityClass.unrated)}>{t("dashboard.pendingReviewHint")}</p>
             )}

@@ -7,15 +7,15 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { QrBlock } from "@/components/qr/qr-block";
+import { ReportQr } from "@/components/qr/report-qr";
 import { StaffForm } from "@/components/settings/staff-form";
 import { can } from "@/lib/auth/permissions";
 import { useLanguage } from "@/lib/i18n/LanguageContext";
-import { companyReportUrl } from "@/lib/qr/urls";
+import { companyBaseUrl, isValidSlug, reportUrl, rootDomain, slugify } from "@/lib/qr/urls";
 import { useIncidentStore } from "@/lib/store/incident-store";
 import { panelClass } from "@/lib/tones";
 import { cn } from "@/lib/utils";
-import type { Organization, Profile } from "@/lib/types";
+import type { Organization, Profile, ReportKey } from "@/lib/types";
 
 /**
  * The app owner's panel. One company per customer (a car plant, a bottle
@@ -24,10 +24,13 @@ import type { Organization, Profile } from "@/lib/types";
  */
 export function ProjectsView() {
   const { t } = useLanguage();
-  const { role, sites, listOrganizations, createOrganization, updateOrganization, listProfiles } = useIncidentStore();
+  const { role, sites, listOrganizations, createOrganization, updateOrganization, listProfiles, listReportKeys, rotateReportKey } =
+    useIncidentStore();
   const allowed = can(role, "projects.manage");
   const [organizations, setOrganizations] = useState<Organization[] | null>(null);
   const [managers, setManagers] = useState<Profile[]>([]);
+  const [keys, setKeys] = useState<ReportKey[]>([]);
+  const [slugDraft, setSlugDraft] = useState<Record<string, string>>({});
   const [form, setForm] = useState({ name: "", organizationNumber: "", industry: "" });
   const [busy, setBusy] = useState(false);
   const [addingFor, setAddingFor] = useState<string | null>(null);
@@ -36,10 +39,11 @@ export function ProjectsView() {
   useEffect(() => {
     if (!allowed) return;
     let cancelled = false;
-    Promise.all([listOrganizations(), listProfiles()])
-      .then(([orgs, people]) => {
+    Promise.all([listOrganizations(), listProfiles(), listReportKeys()])
+      .then(([orgs, people, reportKeys]) => {
         if (cancelled) return;
         setOrganizations(orgs);
+        setKeys(reportKeys);
         setManagers(people.filter((person) => person.role === "hse_manager" || person.role === "admin"));
       })
       .catch((caught: { message?: string }) => {
@@ -51,7 +55,7 @@ export function ProjectsView() {
     return () => {
       cancelled = true;
     };
-  }, [allowed, listOrganizations, listProfiles]);
+  }, [allowed, listOrganizations, listProfiles, listReportKeys]);
 
   if (!allowed) {
     return <p className={cn("rounded-xl border px-4 py-3 text-sm", panelClass.warning)}>{t("projects.ownerOnly")}</p>;
@@ -61,8 +65,16 @@ export function ProjectsView() {
     if (!form.name.trim()) return;
     setBusy(true);
     try {
-      const created = await createOrganization(form);
+      // The company address comes from the name; a taken one gets a short suffix.
+      const slug = slugify(form.name);
+      let created: Organization;
+      try {
+        created = await createOrganization({ ...form, slug });
+      } catch {
+        created = await createOrganization({ ...form, slug: `${slug.slice(0, 33)}-${Math.random().toString(36).slice(2, 6)}` });
+      }
       setOrganizations((current) => [...(current ?? []), created]);
+      setKeys(await listReportKeys());
       setForm({ name: "", organizationNumber: "", industry: "" });
       setAddingFor(created.id);
       toast.success(t("projects.companyCreated"));
@@ -70,6 +82,23 @@ export function ProjectsView() {
       toast.error((caught as { message?: string })?.message ?? t("toast.capaFailed"));
     } finally {
       setBusy(false);
+    }
+  }
+
+  const keyOf = (organizationId: string) => keys.find((item) => item.organizationId === organizationId && item.siteId === null)?.key ?? null;
+
+  async function saveSlug(org: Organization) {
+    const slug = (slugDraft[org.id] ?? org.slug ?? "").trim().toLowerCase();
+    if (!isValidSlug(slug)) {
+      toast.error(t("projects.slugInvalid"));
+      return;
+    }
+    try {
+      const updated = await updateOrganization(org.id, { slug });
+      setOrganizations((current) => (current ?? []).map((item) => (item.id === updated.id ? updated : item)));
+      toast.success(t("settings.saved"));
+    } catch (caught) {
+      toast.error((caught as { message?: string })?.message ?? t("projects.slugTaken"));
     }
   }
 
@@ -141,8 +170,35 @@ export function ProjectsView() {
               </div>
 
               <div className="grid gap-4 sm:grid-cols-[13rem_1fr]">
-                <QrBlock url={companyReportUrl(org.id, origin)} title={org.name} />
+                <ReportQr
+                  url={keyOf(org.id) ? reportUrl(keyOf(org.id) as string, companyBaseUrl(org.slug, origin)) : null}
+                  title={org.name}
+                  onRotate={async () => {
+                    await rotateReportKey({ organizationId: org.id });
+                    setKeys(await listReportKeys());
+                  }}
+                />
                 <div className="min-w-0 space-y-2">
+                  <div className="rounded-lg border border-border bg-background/60 p-2">
+                    <label htmlFor={`slug-${org.id}`} className="text-xs font-semibold">
+                      {t("projects.slugLabel")}
+                    </label>
+                    <div className="mt-1 flex items-center gap-1.5">
+                      <Input
+                        id={`slug-${org.id}`}
+                        value={slugDraft[org.id] ?? org.slug ?? ""}
+                        onChange={(event) => setSlugDraft((current) => ({ ...current, [org.id]: event.target.value }))}
+                        className="h-10"
+                        placeholder="volvo"
+                      />
+                      <Button type="button" variant="outline" size="sm" className="h-10" onClick={() => void saveSlug(org)}>
+                        {t("projects.slugSave")}
+                      </Button>
+                    </div>
+                    <p className="mt-1 truncate text-[11px] text-muted-foreground">
+                      {rootDomain() ? `https://${slugDraft[org.id] ?? org.slug ?? "…"}.${rootDomain()}` : t("projects.slugNoDomain")}
+                    </p>
+                  </div>
                   <p className="text-sm font-semibold">{t("projects.managers")}</p>
                   {orgManagers.length === 0 ? (
                     <p className={cn("rounded-lg border px-3 py-2 text-xs", panelClass.warning)}>{t("projects.noManager")}</p>

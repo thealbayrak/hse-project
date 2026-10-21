@@ -92,6 +92,10 @@ export interface Incident {
   dangerPresent?: boolean | null;
   /** Subcontractor / company the reporter works for, when given. */
   subcontractor?: string | null;
+  /** True when the report was sent from outside the place; null when unknown. A flag, never a block. */
+  outsideArea?: boolean | null;
+  /** Metres from the place when the report was sent (rounded). */
+  distanceM?: number | null;
   /** All areas the reporter marked; `locationId` is the first of them (may be empty). */
   locationIds?: string[];
   /** First risk type, or "unclassified" until the safety team assigns one. */
@@ -168,6 +172,10 @@ export interface CreateIncidentInput {
   reporterProfileId?: string | null;
   latitude?: number | null;
   longitude?: number | null;
+  /** The QR code's key; signed-in people of the company do not need one. */
+  reportKey?: string | null;
+  /** Random id of this browser, used only to limit spam. */
+  device?: string | null;
 }
 
 /** What a reporter sees on /track with their code. */
@@ -352,6 +360,10 @@ export interface Profile {
   reportsToName?: string | null;
   language: string | null;
   active: boolean;
+  /** Sees every place of the company (managers always do). */
+  allSites?: boolean;
+  /** The places this person sees when allSites is off. */
+  siteIds?: string[];
 }
 
 /** What the people import accepts per row (Excel / CSV). */
@@ -507,7 +519,27 @@ export interface Organization {
   organizationNumber: string | null;
   address: string | null;
   industry: string | null;
+  /** Company address on the sub-domain: <slug>.<root domain>. */
+  slug?: string | null;
   active: boolean;
+}
+
+/** What a QR code points to; null from the server when the key is unknown or replaced. */
+export interface ReportTarget {
+  organizationId: string;
+  siteId: string | null;
+  organizationName: string;
+  siteName: string | null;
+  slug: string | null;
+}
+
+/** The current QR key of a company (siteId null) or of one place. */
+export interface ReportKey {
+  id: string;
+  organizationId: string;
+  siteId: string | null;
+  key: string;
+  createdAt: string;
 }
 
 export interface CreateOrganizationInput {
@@ -515,6 +547,7 @@ export interface CreateOrganizationInput {
   organizationNumber?: string | null;
   address?: string | null;
   industry?: string | null;
+  slug?: string | null;
 }
 
 export interface RiskType {
@@ -541,6 +574,8 @@ export interface CreateStaffInput {
   password?: string | null;
   phone?: string | null;
   employeeNo?: string | null;
+  allSites?: boolean;
+  siteIds?: string[];
 }
 
 export interface CreateStaffResult {

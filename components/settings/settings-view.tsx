@@ -7,9 +7,9 @@ import { Building2Icon, EyeOffIcon, HardHatIcon, MapPinIcon, PlusIcon, QrCodeIco
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { QrBlock } from "@/components/qr/qr-block";
+import { ReportQr } from "@/components/qr/report-qr";
 import { StaffForm } from "@/components/settings/staff-form";
-import { placeReportUrl } from "@/lib/qr/urls";
+import { companyBaseUrl, reportUrl } from "@/lib/qr/urls";
 import { can } from "@/lib/auth/permissions";
 import { RISK_CATEGORIES } from "@/lib/constants";
 import { categoryLabel } from "@/lib/format";
@@ -17,7 +17,7 @@ import { useLanguage } from "@/lib/i18n/LanguageContext";
 import { useIncidentStore } from "@/lib/store/incident-store";
 import { panelClass } from "@/lib/tones";
 import { cn } from "@/lib/utils";
-import type { Organization, Profile, RiskType, Subcontractor } from "@/lib/types";
+import type { Organization, Profile, ReportKey, RiskType, Subcontractor } from "@/lib/types";
 
 function errorText(caught: unknown, fallback: string) {
   return (caught as { message?: string })?.message ?? fallback;
@@ -35,6 +35,8 @@ export function SettingsView() {
     listProfiles,
     listRiskTypes,
     listSubcontractors,
+    listReportKeys,
+    rotateReportKey,
     createSubcontractor,
     removeSubcontractor,
     createRiskType,
@@ -52,6 +54,7 @@ export function SettingsView() {
   const [riskTypes, setRiskTypes] = useState<RiskType[]>([]);
   const [subcontractors, setSubcontractors] = useState<Subcontractor[]>([]);
   const [newSub, setNewSub] = useState("");
+  const [keys, setKeys] = useState<ReportKey[]>([]);
   const origin = typeof window === "undefined" ? "" : window.location.origin;
   const [newSite, setNewSite] = useState({ name: "", city: "" });
   const [newRisk, setNewRisk] = useState("");
@@ -74,6 +77,20 @@ export function SettingsView() {
       cancelled = true;
     };
   }, [allowed, listOrganizations]);
+
+  // The QR keys (a new place gets its key from the database, so reload when the list of places changes).
+  useEffect(() => {
+    if (!allowed || !organizationId) return;
+    let cancelled = false;
+    listReportKeys()
+      .then((rows) => {
+        if (!cancelled) setKeys(rows);
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, [allowed, organizationId, orgSites.length, listReportKeys]);
 
   useEffect(() => {
     if (!allowed || !organizationId) return;
@@ -109,6 +126,13 @@ export function SettingsView() {
         )}
       </div>
     );
+  }
+
+  const baseUrl = companyBaseUrl(organization?.slug, origin);
+  const keyOf = (siteId: string | null) => keys.find((item) => item.organizationId === organizationId && item.siteId === siteId)?.key ?? null;
+  async function rotate(scope: { siteId?: string | null; organizationId?: string | null }) {
+    await rotateReportKey(scope);
+    setKeys(await listReportKeys());
   }
 
   async function addSubcontractor() {
@@ -242,7 +266,12 @@ export function SettingsView() {
                   {t("settings.placeQr")}
                 </summary>
                 <div className="grid gap-3 pt-3 sm:grid-cols-[13rem_1fr] sm:items-center">
-                  <QrBlock url={placeReportUrl(site.id, origin)} title={site.name} subtitle={site.city || undefined} />
+                  <ReportQr
+                    url={keyOf(site.id) ? reportUrl(keyOf(site.id) as string, baseUrl) : null}
+                    title={site.name}
+                    subtitle={site.city || undefined}
+                    onRotate={() => rotate({ siteId: site.id })}
+                  />
                   <p className="text-xs text-muted-foreground">{t("settings.placeQrHint")}</p>
                 </div>
               </details>

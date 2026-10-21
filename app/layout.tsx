@@ -1,9 +1,12 @@
 import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import { cookies, headers } from "next/headers";
+import { BrandProvider, type Brand } from "@/components/brand-context";
 import { IosStartupImages } from "@/components/ios-startup-images";
 import { PWAInstallBanner } from "@/components/PWAInstallBanner";
 import { Providers } from "@/components/providers";
+import { isSupabaseConfigured } from "@/lib/supabase/env";
+import { createAnonServerClient } from "@/lib/supabase/server";
 import { STORAGE_KEY, isLocale, localeFromBrowser } from "@/lib/i18n/translations";
 import "./globals.css";
 
@@ -67,8 +70,21 @@ async function resolveInitialLocale() {
   return localeFromBrowser(headerList.get("accept-language") ?? "");
 }
 
+/** The company behind the sub-domain the proxy saw (x-company-slug), if any and if it exists. */
+async function resolveBrand(): Promise<Brand | null> {
+  const slug = (await headers()).get("x-company-slug");
+  if (!slug || !isSupabaseConfigured()) return null;
+  try {
+    const { data } = await createAnonServerClient().from("organizations").select("name, slug").eq("slug", slug).eq("active", true).maybeSingle();
+    return data?.slug ? { slug: data.slug, name: data.name } : null;
+  } catch {
+    return null;
+  }
+}
+
 export default async function RootLayout({ children }: LayoutProps<"/">) {
   const initialLocale = await resolveInitialLocale();
+  const brand = await resolveBrand();
 
   return (
     <html
@@ -80,10 +96,12 @@ export default async function RootLayout({ children }: LayoutProps<"/">) {
         <IosStartupImages />
       </head>
       <body className="flex min-h-full min-h-dvh flex-col font-sans">
-        <Providers initialLocale={initialLocale}>
-          {children}
-          <PWAInstallBanner />
-        </Providers>
+        <BrandProvider brand={brand}>
+          <Providers initialLocale={initialLocale}>
+            {children}
+            <PWAInstallBanner />
+          </Providers>
+        </BrandProvider>
       </body>
     </html>
   );

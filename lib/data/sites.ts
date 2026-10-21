@@ -58,7 +58,7 @@ export function findLocation(siteId: string, locationId: string) {
 
 /** Demo companies (tenants) behind the demo sites. */
 export const ORGANIZATIONS = [
-  { id: "org-volvo", name: "Volvo Personvagnar AB", organizationNumber: "556074-3089", address: null, industry: "Automotive", active: true },
-  { id: "org-nordic", name: "Nordic Siteworks AB", organizationNumber: "559123-4418", address: null, industry: "Construction", active: true },
-  { id: "org-sydkomp", name: "Sydkomponent AB", organizationNumber: "556887-2201", address: null, industry: "Manufacturing", active: true },
+  { id: "org-volvo", slug: "volvo", name: "Volvo Personvagnar AB", organizationNumber: "556074-3089", address: null, industry: "Automotive", active: true },
+  { id: "org-nordic", slug: "nordic", name: "Nordic Siteworks AB", organizationNumber: "559123-4418", address: null, industry: "Construction", active: true },
+  { id: "org-sydkomp", slug: "sydkomp", name: "Sydkomponent AB", organizationNumber: "556887-2201", address: null, industry: "Manufacturing", active: true },
 ];

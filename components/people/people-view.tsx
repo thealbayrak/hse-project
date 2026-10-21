@@ -5,6 +5,7 @@ import { CheckIcon, DownloadIcon, Loader2Icon, SearchIcon, Trash2Icon, UploadIco
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { SiteScopeFields, seesEverything } from "@/components/people/site-scope";
 import { can } from "@/lib/auth/permissions";
 import { useLanguage } from "@/lib/i18n/LanguageContext";
 import { buildTemplateWorkbook, parsePeopleFile } from "@/lib/people/import";
@@ -235,12 +236,13 @@ export function PeopleView() {
         <p className="rounded-2xl border border-border bg-card px-4 py-6 text-center text-sm text-muted-foreground">{t("people.empty")}</p>
       ) : (
         <div className="overflow-x-auto rounded-2xl border border-border bg-card">
-          <table className="w-full min-w-[840px] text-sm">
+          <table className="w-full min-w-[1000px] text-sm">
             <thead className="bg-secondary/50 text-left text-xs tracking-wide text-muted-foreground uppercase">
               <tr>
                 <th className="px-3 py-2.5">{t("people.name")}</th>
                 <th className="px-3 py-2.5">{t("people.role")}</th>
                 <th className="px-3 py-2.5">{t("people.site")}</th>
+                <th className="px-3 py-2.5">{t("people.scope")}</th>
                 <th className="px-3 py-2.5">{t("people.reportsTo")}</th>
                 <th className="px-3 py-2.5">{t("people.employeeNo")}</th>
                 <th className="px-3 py-2.5">{t("people.active")}</th>
@@ -281,6 +283,30 @@ export function PeopleView() {
                         </option>
                       ))}
                     </select>
+                  </td>
+                  <td className="px-3 py-2">
+                    {seesEverything(person.role) || person.role === "worker" ? (
+                      <span className="text-xs text-muted-foreground">
+                        {seesEverything(person.role) ? t("people.scopeManager") : "—"}
+                      </span>
+                    ) : (
+                      <details className="max-w-56">
+                        <summary className="flex min-h-10 cursor-pointer items-center text-xs font-medium">
+                          {(person.allSites ?? true)
+                            ? t("people.scopeAll")
+                            : t("people.scopeCount", { n: (person.siteIds ?? []).length })}
+                        </summary>
+                        <div className="pt-2">
+                          <SiteScopeFields
+                            sites={sites.filter((site) => site.organizationId === person.organizationId)}
+                            allSites={person.allSites ?? true}
+                            siteIds={person.siteIds ?? []}
+                            onChange={(next) => void patch(person.id, next)}
+                            idPrefix={`scope-${person.id}`}
+                          />
+                        </div>
+                      </details>
+                    )}
                   </td>
                   <td className="px-3 py-2">
                     <select

@@ -11,7 +11,7 @@ import { useLanguage } from "@/lib/i18n/LanguageContext";
 import { createBrowserSupabaseClient } from "@/lib/supabase/client";
 
 function safeNext(value: string | null) {
-  if (!value || !value.startsWith("/") || value.startsWith("//")) return "/dashboard";
+  if (!value || !value.startsWith("/") || value.startsWith("//")) return "/start";
   return value;
 }
 

@@ -4,7 +4,7 @@ import { assignableRoles } from "@/lib/admin/staff-rules";
 import { can } from "@/lib/auth/permissions";
 import { createMockRepository } from "@/lib/data/mock-repository";
 import { averageResolutionDays, incidentsBySubcontractor, isPendingReview, severityDistribution } from "@/lib/dashboard/kpis";
-import { projectIdFromSearch, companyReportUrl, placeReportUrl } from "@/lib/qr/urls";
+import { companyBaseUrl, isValidSlug, reportUrl, slugFromHost, slugify } from "@/lib/qr/urls";
 import { suggestSeverity } from "@/lib/report/severity";
 import { mapRole, mapSeverity } from "@/lib/supabase/mappers";
 import type { Incident } from "@/lib/types";
@@ -192,12 +192,46 @@ describe("assignment e-mail", () => {
 });
 
 describe("QR links", () => {
-  it("builds company and place links and reads every project parameter name", () => {
-    expect(companyReportUrl("abc", "https://x.se")).toBe("https://x.se/report?org=abc");
-    expect(placeReportUrl("a b", "https://x.se")).toBe("https://x.se/report?project_id=a%20b");
-    expect(projectIdFromSearch(new URLSearchParams("project_id=1&project=2"))).toBe("1");
-    expect(projectIdFromSearch(new URLSearchParams("project=2"))).toBe("2");
-    expect(projectIdFromSearch(new URLSearchParams("site=3"))).toBe("3");
-    expect(projectIdFromSearch(new URLSearchParams(""))).toBeNull();
+  it("builds the link from the key and the company address", () => {
+    expect(reportUrl("abc 1", "https://x.se")).toBe("https://x.se/report?k=abc%201");
+    expect(companyBaseUrl("volvo", "https://app.se", "example.com")).toBe("https://volvo.example.com");
+    expect(companyBaseUrl("volvo", "https://app.se", "")).toBe("https://app.se");
+    expect(companyBaseUrl(null, "https://app.se", "example.com")).toBe("https://app.se");
+  });
+
+  it("turns a company name into a valid address and reads it back from the host", () => {
+    expect(slugify("Volvo Personvagnar AB")).toBe("volvo-personvagnar-ab");
+    expect(slugify("Åkerström & Söner")).toBe("akerstrom-soner");
+    expect(slugify("!!!")).toBe("company");
+    expect(isValidSlug("volvo")).toBe(true);
+    expect(isValidSlug("www")).toBe(false);
+    expect(isValidSlug("-bad")).toBe(false);
+    expect(slugFromHost("volvo.example.com", "example.com")).toBe("volvo");
+    expect(slugFromHost("volvo.example.com:3000", "example.com")).toBe("volvo");
+    expect(slugFromHost("example.com", "example.com")).toBeNull();
+    expect(slugFromHost("a.b.example.com", "example.com")).toBeNull();
+    expect(slugFromHost("www.example.com", "example.com")).toBeNull();
+    expect(slugFromHost("volvo.other.com", "example.com")).toBeNull();
+    expect(slugFromHost("volvo.example.com", "")).toBeNull();
+  });
+});
+
+describe("report keys (demo repository)", () => {
+  it("resolves a key to its company and place, and stops the old key after a replacement", async () => {
+    const repo = createMockRepository();
+    const keys = await repo.listReportKeys();
+    const siteKey = keys.find((item) => item.siteId);
+    const companyKey = keys.find((item) => !item.siteId);
+    expect(siteKey && companyKey).toBeTruthy();
+
+    const target = await repo.resolveReportKey(siteKey!.key);
+    expect(target).toMatchObject({ siteId: siteKey!.siteId, organizationId: siteKey!.organizationId });
+    expect(await repo.resolveReportKey(companyKey!.key)).toMatchObject({ siteId: null, organizationId: companyKey!.organizationId });
+    expect(await repo.resolveReportKey("nonsense")).toBeNull();
+
+    const fresh = await repo.rotateReportKey({ siteId: siteKey!.siteId });
+    expect(fresh).not.toBe(siteKey!.key);
+    expect(await repo.resolveReportKey(siteKey!.key)).toBeNull();
+    expect(await repo.resolveReportKey(fresh)).toMatchObject({ siteId: siteKey!.siteId });
   });
 });

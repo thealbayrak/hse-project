@@ -85,6 +85,12 @@ export function createMockRepository(): IncidentRepository {
     { id: "sub-el", organizationId: "org-nordic", name: "El-Team Syd", active: true },
   ];
   let membershipRequests: MembershipRequest[] = [];
+  // Demo QR keys: "demo-<site or company id>", with "~n" once replaced n times.
+  const keyVersion = new Map<string, number>();
+  const demoKey = (id: string) => {
+    const version = keyVersion.get(id) ?? 0;
+    return version ? `demo-${id}~${version}` : `demo-${id}`;
+  };
   let walks: SafetyWalk[] = structuredClone(SEED_SAFETY_WALKS);
   let contacts: Contact[] = [
     { id: "contact-anna", name: "Anna Bergström", email: "anna.bergstrom@example.se", role: "HSE Manager" },
@@ -501,6 +507,39 @@ export function createMockRepository(): IncidentRepository {
       return structuredClone(organizations);
     },
 
+    async resolveReportKey(key) {
+      const wanted = key.startsWith("demo-") ? key.slice(5) : "";
+      const [id] = wanted.split("~");
+      if (!id || demoKey(id) !== key) return null;
+      const site = sites.find((item) => item.id === id);
+      const organization = organizations.find((item) => item.id === (site ? site.organizationId : id));
+      if (!organization) return null;
+      return {
+        organizationId: organization.id,
+        siteId: site?.id ?? null,
+        organizationName: organization.name,
+        siteName: site?.name ?? null,
+        slug: organization.slug ?? null,
+      };
+    },
+
+    async listReportKeys() {
+      const createdAt = new Date().toISOString();
+      return [
+        ...organizations.map((item) => ({ id: `key-${item.id}`, organizationId: item.id, siteId: null, key: demoKey(item.id), createdAt })),
+        ...sites
+          .filter((item) => item.organizationId)
+          .map((item) => ({ id: `key-${item.id}`, organizationId: item.organizationId as string, siteId: item.id, key: demoKey(item.id), createdAt })),
+      ];
+    },
+
+    async rotateReportKey(scope) {
+      const id = scope.siteId ?? scope.organizationId;
+      if (!id) throw new Error("unknown company or place");
+      keyVersion.set(id, (keyVersion.get(id) ?? 0) + 1);
+      return demoKey(id);
+    },
+
     async createOrganization(input) {
       const organization: Organization = {
         id: `org-${crypto.randomUUID().slice(0, 8)}`,
@@ -508,6 +547,7 @@ export function createMockRepository(): IncidentRepository {
         organizationNumber: input.organizationNumber?.trim() || null,
         address: input.address?.trim() || null,
         industry: input.industry?.trim() || null,
+        slug: input.slug?.trim().toLowerCase() || null,
         active: true,
       };
       organizations = [...organizations, organization];
@@ -523,6 +563,7 @@ export function createMockRepository(): IncidentRepository {
         ...(patch.organizationNumber !== undefined ? { organizationNumber: patch.organizationNumber ?? null } : {}),
         ...(patch.address !== undefined ? { address: patch.address ?? null } : {}),
         ...(patch.industry !== undefined ? { industry: patch.industry ?? null } : {}),
+        ...(patch.slug !== undefined ? { slug: patch.slug?.trim().toLowerCase() || null } : {}),
         ...(patch.active !== undefined ? { active: patch.active } : {}),
       };
       return structuredClone(organizations[index]);
@@ -660,6 +701,8 @@ export function createMockRepository(): IncidentRepository {
         reportsToName: null,
         language: null,
         active: true,
+        allSites: input.allSites ?? true,
+        siteIds: input.siteIds ?? [],
       };
       profiles = [...profiles, profile];
       return { profile: structuredClone(profile), login: email && input.password ? "created" : "none" };

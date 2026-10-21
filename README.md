@@ -51,6 +51,18 @@ npm run typecheck
 The dashboard and `/skyddsrond` redirect to `/login` when Supabase is configured. Media lives in
 the private `incident-media` bucket and is served through short-lived signed URLs.
 
+## Anonymous reporting: QR keys, limits and company addresses
+
+Workers never sign in. Each company and each place has a **report key**; the QR code carries it (`/report?k=<key>`).
+The `submit_incident` RPC refuses an anonymous report without the current key of that company or place, so the
+form cannot be used for another company. A manager (or the owner) replaces a key in Settings / Projects and the
+old printed code stops working at once. The RPC also limits reports per phone, per network and per company per
+hour, and flags a report sent from outside the place (a flag, not a block). Signed-in people of the company
+report without a key. Optional: Cloudflare Turnstile (`NEXT_PUBLIC_TURNSTILE_SITE_KEY`, `TURNSTILE_SECRET_KEY`).
+
+Staff see only the places a manager ticks for them (People page); managers see their whole company.
+With `NEXT_PUBLIC_ROOT_DOMAIN` set, each company gets `<slug>.<root domain>` (add a wildcard domain in Vercel).
+
 ## Critical-incident e-mail
 
 Set `RESEND_API_KEY`, `SAFETY_ALERT_RECIPIENT` (comma-separated allowed), optionally `RESEND_FROM`

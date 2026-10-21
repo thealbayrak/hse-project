@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { assignableRoles } from "@/lib/admin/staff-rules";
+import { SiteScopeFields, seesEverything } from "@/components/people/site-scope";
 import { useLanguage } from "@/lib/i18n/LanguageContext";
 import { useIncidentStore } from "@/lib/store/incident-store";
 import type { Profile, Role, Site } from "@/lib/types";
@@ -36,6 +37,7 @@ export function StaffForm({
   const [fullName, setFullName] = useState("");
   const [role, setRole] = useState<Role>(allowed.includes(defaultRole) ? defaultRole : (allowed[0] ?? "worker"));
   const [siteId, setSiteId] = useState("");
+  const [scope, setScope] = useState<{ allSites: boolean; siteIds: string[] }>({ allSites: true, siteIds: [] });
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
@@ -61,6 +63,8 @@ export function StaffForm({
         role,
         organizationId,
         siteId: siteId || null,
+        allSites: seesEverything(role) ? true : scope.allSites,
+        siteIds: seesEverything(role) || scope.allSites ? [] : scope.siteIds,
         email: email.trim() || null,
         password: password || null,
       });
@@ -103,6 +107,12 @@ export function StaffForm({
               </option>
             ))}
           </select>
+        </div>
+      )}
+      {!compact && sites.length > 1 && !seesEverything(role) && (
+        <div className="space-y-1.5 sm:col-span-2">
+          <Label>{t("people.scope")}</Label>
+          <SiteScopeFields sites={sites} allSites={scope.allSites} siteIds={scope.siteIds} onChange={setScope} idPrefix={`staff-scope-${organizationId}`} />
         </div>
       )}
       <div className="space-y-1.5">

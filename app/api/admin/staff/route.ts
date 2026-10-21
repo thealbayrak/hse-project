@@ -97,6 +97,8 @@ export async function POST(request: Request) {
       role: input.role!,
       organization_id: check.organizationId,
       site_id: input.siteId || null,
+      all_sites: input.allSites ?? true,
+      site_ids: input.allSites === false && Array.isArray(input.siteIds) ? input.siteIds.filter((id) => typeof id === "string") : [],
       employee_no: input.employeeNo?.trim() || null,
       auth_user_id: authUserId,
     })

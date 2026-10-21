@@ -8,6 +8,8 @@ import type {
   CreateStaffInput,
   CreateStaffResult,
   Organization,
+  ReportKey,
+  ReportTarget,
   RiskType,
   SiteLocation,
   ChecklistTemplate,
@@ -112,6 +114,12 @@ export interface IncidentRepository {
   requestMembership(input: MembershipRequestInput): Promise<"requested" | "already_member">;
   listMembershipRequests(): Promise<MembershipRequest[]>;
   decideMembership(id: string, status: "approved" | "rejected", decidedBy: string | null): Promise<void>;
+  /** Public: what a QR code points to; null when the key is unknown or has been replaced. */
+  resolveReportKey(key: string): Promise<ReportTarget | null>;
+  /** Managers: the current QR keys of their company and its places. */
+  listReportKeys(): Promise<ReportKey[]>;
+  /** Replaces the QR key of a company (no siteId) or one place; the old code stops working. */
+  rotateReportKey(scope: { siteId?: string | null; organizationId?: string | null }): Promise<string>;
   /** People of a company for the reporter picker (no contact details). */
   listOrgPeople(organizationId: string): Promise<SitePerson[]>;
   /** Adds a person; with e-mail and password they also get a login. */

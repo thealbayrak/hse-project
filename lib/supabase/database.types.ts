@@ -17,6 +17,7 @@ export interface Database {
           organization_number: string | null;
           address: string | null;
           industry: string | null;
+          slug: string | null;
           active: boolean;
           created_at: string;
         };
@@ -26,6 +27,7 @@ export interface Database {
           organization_number?: string | null;
           address?: string | null;
           industry?: string | null;
+          slug?: string | null;
           active?: boolean;
           created_at?: string;
         };
@@ -115,6 +117,8 @@ export interface Database {
           hurt: boolean | null;
           danger_present: boolean | null;
           subcontractor: string | null;
+          outside_area: boolean | null;
+          distance_m: number | null;
           created_at: string;
           updated_at: string | null;
         };
@@ -130,6 +134,8 @@ export interface Database {
           hurt?: boolean | null;
           danger_present?: boolean | null;
           subcontractor?: string | null;
+          outside_area?: boolean | null;
+          distance_m?: number | null;
           location?: string | null;
           type: string;
           category?: string;
@@ -173,6 +179,8 @@ export interface Database {
           reports_to: string | null;
           language: string | null;
           active: boolean;
+          all_sites: boolean;
+          site_ids: string[];
           auth_user_id: string | null;
           created_at: string;
           updated_at: string | null;
@@ -189,6 +197,8 @@ export interface Database {
           reports_to?: string | null;
           language?: string | null;
           active?: boolean;
+          all_sites?: boolean;
+          site_ids?: string[];
           auth_user_id?: string | null;
           created_at?: string;
           updated_at?: string | null;
@@ -232,6 +242,28 @@ export interface Database {
           updated_at?: string | null;
         };
         Update: Partial<Database["public"]["Tables"]["tasks"]["Insert"]>;
+        Relationships: [];
+      };
+      report_keys: {
+        Row: {
+          id: string;
+          organization_id: string;
+          site_id: string | null;
+          key: string;
+          active: boolean;
+          created_at: string;
+          revoked_at: string | null;
+        };
+        Insert: {
+          id?: string;
+          organization_id: string;
+          site_id?: string | null;
+          key?: string;
+          active?: boolean;
+          created_at?: string;
+          revoked_at?: string | null;
+        };
+        Update: Partial<Database["public"]["Tables"]["report_keys"]["Insert"]>;
         Relationships: [];
       };
       subcontractors: {
@@ -572,8 +604,18 @@ export interface Database {
           p_hurt?: boolean | null;
           p_danger_present?: boolean | null;
           p_subcontractor?: string | null;
+          p_report_key?: string | null;
+          p_device?: string | null;
         };
         Returns: { id: string; reference: string; created_at: string; tracking_code: string | null }[];
+      };
+      report_target: {
+        Args: { p_key: string };
+        Returns: { organization_id: string; site_id: string | null; organization_name: string; site_name: string | null; slug: string | null }[];
+      };
+      rotate_report_key: {
+        Args: { p_site_id?: string | null; p_organization_id?: string | null };
+        Returns: string;
       };
       audit_open_nonconformities: {
         Args: { p_audit_id: string };

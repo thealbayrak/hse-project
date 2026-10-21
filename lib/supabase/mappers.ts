@@ -196,6 +196,8 @@ export function mapIncident(row: IncidentQueryRow, mediaUrl: MediaUrlResolver = 
     hurt: row.hurt ?? null,
     dangerPresent: row.danger_present ?? null,
     subcontractor: row.subcontractor ?? null,
+    outsideArea: row.outside_area ?? null,
+    distanceM: row.distance_m ?? null,
     siteId: row.site_id ?? "",
     organizationId: row.organization_id ?? null,
     locationNote: row.location_note ?? null,
@@ -390,6 +392,8 @@ export function mapProfile(row: ProfileQueryRow): Profile {
     reportsToName: manager?.full_name ?? null,
     language: row.language,
     active: row.active,
+    allSites: row.all_sites ?? true,
+    siteIds: row.site_ids ?? [],
   };
 }
 
@@ -592,6 +596,7 @@ export function mapOrganization(row: OrganizationRow): Organization {
     organizationNumber: row.organization_number ?? null,
     address: row.address ?? null,
     industry: row.industry ?? null,
+    slug: row.slug ?? null,
     active: row.active ?? true,
   };
 }

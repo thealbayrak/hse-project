@@ -39,6 +39,8 @@ import type {
   Audit,
   MembershipRequest,
   MembershipRequestInput,
+  ReportKey,
+  ReportTarget,
   Subcontractor,
   ChecklistTemplate,
   CreateOrganizationInput,
@@ -118,6 +120,9 @@ interface IncidentStoreValue {
   createRiskType: (organizationId: string, label: string) => Promise<RiskType>;
   removeRiskType: (id: string) => Promise<void>;
   listOrgPeople: (organizationId: string) => Promise<SitePerson[]>;
+  resolveReportKey: (key: string) => Promise<ReportTarget | null>;
+  listReportKeys: () => Promise<ReportKey[]>;
+  rotateReportKey: (scope: { siteId?: string | null; organizationId?: string | null }) => Promise<string>;
   listSubcontractors: (organizationId?: string | null) => Promise<Subcontractor[]>;
   createSubcontractor: (organizationId: string, name: string) => Promise<Subcontractor>;
   removeSubcontractor: (id: string) => Promise<void>;
@@ -511,6 +516,12 @@ export function IncidentProvider({ children }: { children: React.ReactNode }) {
   const createRiskType = useCallback((organizationId: string, label: string) => repository.createRiskType(organizationId, label), [repository]);
   const removeRiskType = useCallback((id: string) => repository.removeRiskType(id), [repository]);
   const listOrgPeople = useCallback((organizationId: string) => repository.listOrgPeople(organizationId), [repository]);
+  const resolveReportKey = useCallback((key: string) => repository.resolveReportKey(key), [repository]);
+  const listReportKeys = useCallback(() => repository.listReportKeys(), [repository]);
+  const rotateReportKey = useCallback(
+    (scope: { siteId?: string | null; organizationId?: string | null }) => repository.rotateReportKey(scope),
+    [repository]
+  );
   const listSubcontractors = useCallback((organizationId?: string | null) => repository.listSubcontractors(organizationId), [repository]);
   const createSubcontractor = useCallback((organizationId: string, name: string) => repository.createSubcontractor(organizationId, name), [repository]);
   const removeSubcontractor = useCallback((id: string) => repository.removeSubcontractor(id), [repository]);
@@ -597,6 +608,9 @@ export function IncidentProvider({ children }: { children: React.ReactNode }) {
       createRiskType,
       removeRiskType,
       listOrgPeople,
+      resolveReportKey,
+      listReportKeys,
+      rotateReportKey,
       listSubcontractors,
       createSubcontractor,
       removeSubcontractor,
@@ -654,6 +668,9 @@ export function IncidentProvider({ children }: { children: React.ReactNode }) {
       createRiskType,
       removeRiskType,
       listOrgPeople,
+      resolveReportKey,
+      listReportKeys,
+      rotateReportKey,
       listSubcontractors,
       createSubcontractor,
       removeSubcontractor,

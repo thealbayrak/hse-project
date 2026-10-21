@@ -18,6 +18,7 @@ import {
   UsersIcon,
 } from "lucide-react";
 import { AssistantPanel } from "@/components/ai/assistant-panel";
+import { useBrand } from "@/components/brand-context";
 import { LanguageToggle } from "@/components/LanguageToggle";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { cn } from "@/lib/utils";
@@ -31,7 +32,7 @@ import { panelClass } from "@/lib/tones";
 const NAV: { href: string; key: string; icon: typeof ShieldCheckIcon; permission?: Permission; mobile: boolean }[] = [
   { href: "/", key: "nav.home", icon: ShieldCheckIcon, mobile: true },
   { href: "/report", key: "nav.report", icon: ClipboardPlusIcon, mobile: true },
-  { href: "/dashboard", key: "nav.dashboard", icon: LayoutDashboardIcon, mobile: true },
+  { href: "/dashboard", key: "nav.dashboard", icon: LayoutDashboardIcon, permission: "dashboard.view", mobile: true },
   { href: "/board", key: "nav.board", icon: KanbanSquareIcon, permission: "dashboard.view", mobile: false },
   { href: "/tasks", key: "home.tasks", icon: ClipboardListIcon, permission: "tasks.view", mobile: true },
   { href: "/reports", key: "home.reports", icon: LineChartIcon, permission: "reports.view", mobile: true },
@@ -55,9 +56,13 @@ export function AppShell({
   const { t } = useLanguage();
   const { enabled: authEnabled, session, email, signOut } = useAuth();
   const { pendingCount, syncQueuedReports, role } = useIncidentStore();
+  const brand = useBrand();
   const heading = pageHeading(pathname, t);
-  // Signed-in roles see their own pages; everyone else sees the three public tabs.
-  const nav = NAV.filter((item) => !item.permission || ((!authEnabled || session) && can(role, item.permission)));
+  const signedIn = !authEnabled || Boolean(session);
+  // A worker who came in through a QR code sees the report form (or the tracking page) and nothing else.
+  const sealed = !signedIn && (pathname.startsWith("/report") || pathname.startsWith("/track"));
+  // Signed-in roles see their own pages; everyone else sees the public tabs.
+  const nav = sealed ? [] : NAV.filter((item) => !item.permission || (signedIn && can(role, item.permission)));
   const mobileNav = nav.filter((item) => item.mobile);
 
   async function handleSignOut() {
@@ -70,13 +75,13 @@ export function AppShell({
     <div className="flex min-h-dvh flex-col bg-background">
       <header className="sticky top-0 z-40 border-b border-border/80 bg-background/90 pt-[env(safe-area-inset-top)] backdrop-blur-md">
         <div className="mx-auto flex h-16 max-w-6xl items-center justify-between gap-2 px-4">
-          <Link href="/" className="flex min-h-12 min-w-0 items-center gap-2.5">
+          <Link href={sealed ? "#" : "/"} aria-disabled={sealed} tabIndex={sealed ? -1 : undefined} onClick={sealed ? (event) => event.preventDefault() : undefined} className="flex min-h-12 min-w-0 items-center gap-2.5">
             <span className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-amber-500 text-slate-950">
               <HardHatIcon className="size-5" />
             </span>
             <span className="min-w-0 leading-tight">
               <span className="block truncate text-sm font-semibold tracking-tight">{APP_NAME}</span>
-              <span className="block truncate text-[11px] text-muted-foreground">{t("nav.tagline")}</span>
+              <span className="block truncate text-[11px] text-muted-foreground">{brand?.name ?? t("nav.tagline")}</span>
             </span>
           </Link>
           <div className="flex items-center gap-1.5 sm:gap-2">
@@ -151,6 +156,7 @@ export function AppShell({
 
       {!pathname.startsWith("/report") && !pathname.startsWith("/track") && !pathname.startsWith("/login") && <AssistantPanel />}
 
+      {mobileNav.length > 0 && (
       <nav
         data-app-tabbar
         className="fixed inset-x-0 bottom-[var(--kb-inset,0px)] z-40 border-t border-border bg-background/95 px-2 pt-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] backdrop-blur-md md:hidden"
@@ -183,6 +189,7 @@ export function AppShell({
           })}
         </div>
       </nav>
+      )}
     </div>
   );
 }

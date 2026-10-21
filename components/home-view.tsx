@@ -87,21 +87,33 @@ export function HomeView() {
 
         {/* Field side: report and follow up, no account. */}
         <div className="grid gap-3">
-          <Link
-            href="/report"
-            className="flex min-h-28 items-center gap-4 rounded-2xl border border-amber-500/40 bg-amber-500 px-5 py-5 text-slate-950 transition-transform active:translate-y-px"
-          >
-            <span className="flex size-14 shrink-0 items-center justify-center rounded-xl bg-slate-950 text-amber-400">
-              <ClipboardPlusIcon className="size-7" />
-            </span>
-            <span className="min-w-0">
-              <span className="block text-xl font-semibold">{t("home.reportTitle")}</span>
-              <span className="flex items-center gap-1.5 text-sm text-slate-800">
-                <MicIcon className="size-3.5 shrink-0" />
-                {t("home.reportHint")}
+          {signedIn ? (
+            <Link
+              href="/report"
+              className="flex min-h-28 items-center gap-4 rounded-2xl border border-amber-500/40 bg-amber-500 px-5 py-5 text-slate-950 transition-transform active:translate-y-px"
+            >
+              <span className="flex size-14 shrink-0 items-center justify-center rounded-xl bg-slate-950 text-amber-400">
+                <ClipboardPlusIcon className="size-7" />
               </span>
-            </span>
-          </Link>
+              <span className="min-w-0">
+                <span className="block text-xl font-semibold">{t("home.reportTitle")}</span>
+                <span className="flex items-center gap-1.5 text-sm text-slate-800">
+                  <MicIcon className="size-3.5 shrink-0" />
+                  {t("home.reportHint")}
+                </span>
+              </span>
+            </Link>
+          ) : (
+            <div className={cn("flex items-start gap-4 rounded-2xl border px-5 py-5", panelClass.info)}>
+              <span className="flex size-12 shrink-0 items-center justify-center rounded-xl bg-secondary">
+                <QrCodeIcon className="size-6" />
+              </span>
+              <span className="min-w-0">
+                <span className="block text-lg font-semibold">{t("report.scanTitle")}</span>
+                <span className="block text-sm opacity-85">{t("report.scanBody")}</span>
+              </span>
+            </div>
+          )}
           <Link
             href="/track"
             className="flex min-h-16 items-center gap-4 rounded-2xl border border-border bg-card px-5 py-3 transition-colors hover:bg-secondary/50"

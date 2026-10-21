@@ -29,6 +29,7 @@ import { Input } from "@/components/ui/input";
 import { StatutoryBanner } from "@/components/layout/statutory-banner";
 import { AiReportButton } from "@/components/ai/ai-report-dialog";
 import { KpiPanel } from "@/components/dashboard/kpi-panel";
+import { ReporterPanel } from "@/components/dashboard/reporter-panel";
 import { IncidentBoard } from "@/components/dashboard/incident-board";
 import { IncidentDetailDialog } from "@/components/dashboard/incident-detail-dialog";
 import { LatestSkyddsrondCard } from "@/components/dashboard/latest-skyddsrond-card";
@@ -359,6 +360,8 @@ export function DashboardView() {
 
       <KpiPanel incidents={filtered} />
 
+      <ReporterPanel incidents={filtered} />
+
       {/* 3. Tabs: observations, walks & audits, accidents */}
       <div role="tablist" aria-label={t("dashboard.tabs")} className="grid grid-cols-3 gap-1 rounded-2xl border border-border bg-secondary/40 p-1">
         {TABS.map((item) => {
@@ -655,6 +658,14 @@ function IncidentRow({
         </span>
         <span className="flex items-center gap-2 text-sm text-muted-foreground">
           <span className="truncate">
+            {incident.outsideArea === true && (
+              <span
+                className="mr-1.5 rounded-full border border-violet-500/40 bg-violet-500/10 px-1.5 py-0.5 text-[10px] font-semibold text-violet-700 dark:text-violet-300"
+                title={t("flag.outsideAreaHint")}
+              >
+                {t("flag.outsideArea")}
+              </span>
+            )}
             {placeLabel(incident)} ·{" "}
             <span className={cn(!categories.length && "font-medium text-amber-700 dark:text-amber-300")}>{categoriesLabel(categories, locale)}</span>
           </span>

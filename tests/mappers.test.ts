@@ -52,6 +52,8 @@ const baseIncident: IncidentQueryRow = {
   hurt: null,
   danger_present: null,
   subcontractor: null,
+  outside_area: null,
+  distance_m: null,
   created_at: "2026-09-08T07:40:00.000Z",
   updated_at: null,
   sites: { id: "site-1", name: "Torslanda", city: "Gothenburg" },

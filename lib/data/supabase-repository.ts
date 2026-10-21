@@ -42,6 +42,8 @@ import type {
   CreateStaffInput,
   CreateStaffResult,
   Organization,
+  ReportKey,
+  ReportTarget,
   RiskType,
   SiteLocation,
   ChecklistTemplate,
@@ -151,6 +153,8 @@ export class SupabaseIncidentRepository implements IncidentRepository {
       p_hurt: input.hurt ?? null,
       p_danger_present: input.dangerPresent ?? null,
       p_subcontractor: input.subcontractor ?? null,
+      p_report_key: input.reportKey ?? null,
+      p_device: input.device ?? null,
       p_location_id: locationIds[0] ?? null,
       p_location_ids: locationIds,
       p_type: input.type,
@@ -493,6 +497,8 @@ export class SupabaseIncidentRepository implements IncidentRepository {
     if (patch.phone !== undefined) payload.phone = patch.phone;
     if (patch.role !== undefined) payload.role = patch.role;
     if (patch.siteId !== undefined) payload.site_id = patch.siteId;
+    if (patch.allSites !== undefined) payload.all_sites = patch.allSites;
+    if (patch.siteIds !== undefined) payload.site_ids = patch.siteIds;
     if (patch.employeeNo !== undefined) payload.employee_no = patch.employeeNo;
     if (patch.reportsTo !== undefined) payload.reports_to = patch.reportsTo;
     if (patch.language !== undefined) payload.language = patch.language;
@@ -718,6 +724,7 @@ export class SupabaseIncidentRepository implements IncidentRepository {
         organization_number: input.organizationNumber?.trim() || null,
         address: input.address?.trim() || null,
         industry: input.industry?.trim() || null,
+        slug: input.slug?.trim().toLowerCase() || null,
       })
       .select("*")
       .single();
@@ -731,6 +738,7 @@ export class SupabaseIncidentRepository implements IncidentRepository {
     if (patch.organizationNumber !== undefined) payload.organization_number = patch.organizationNumber?.trim() || null;
     if (patch.address !== undefined) payload.address = patch.address?.trim() || null;
     if (patch.industry !== undefined) payload.industry = patch.industry?.trim() || null;
+    if (patch.slug !== undefined) payload.slug = patch.slug?.trim().toLowerCase() || null;
     if (patch.active !== undefined) payload.active = patch.active;
     const result = await this.client.from("organizations").update(payload).eq("id", id).select("*").single();
     if (result.error) throw result.error;
@@ -799,6 +807,41 @@ export class SupabaseIncidentRepository implements IncidentRepository {
   async removeRiskType(id: string): Promise<void> {
     const result = await this.client.from("risk_types").delete().eq("id", id);
     if (result.error) throw result.error;
+  }
+
+  async resolveReportKey(key: string): Promise<ReportTarget | null> {
+    const result = await this.client.rpc("report_target", { p_key: key });
+    if (result.error) throw result.error;
+    const row = (result.data ?? [])[0];
+    if (!row) return null;
+    return {
+      organizationId: row.organization_id,
+      siteId: row.site_id,
+      organizationName: row.organization_name,
+      siteName: row.site_name,
+      slug: row.slug,
+    };
+  }
+
+  async listReportKeys(): Promise<ReportKey[]> {
+    const result = await this.client.from("report_keys").select("*").eq("active", true);
+    if (result.error) throw result.error;
+    return (result.data ?? []).map((row) => ({
+      id: row.id,
+      organizationId: row.organization_id,
+      siteId: row.site_id,
+      key: row.key,
+      createdAt: row.created_at,
+    }));
+  }
+
+  async rotateReportKey(scope: { siteId?: string | null; organizationId?: string | null }): Promise<string> {
+    const result = await this.client.rpc("rotate_report_key", {
+      p_site_id: scope.siteId ?? null,
+      p_organization_id: scope.siteId ? null : (scope.organizationId ?? null),
+    });
+    if (result.error) throw result.error;
+    return result.data as string;
   }
 
   async listSubcontractors(organizationId?: string | null): Promise<Subcontractor[]> {
