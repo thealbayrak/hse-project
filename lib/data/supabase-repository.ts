@@ -89,7 +89,8 @@ const INCIDENT_SELECT = `
 
 const WALK_SELECT = "*, sites ( id, name ), safety_walk_items ( * )";
 
-const PROFILE_SELECT = "*, sites ( id, name ), manager:profiles!profiles_reports_to_fkey ( id, full_name )";
+// No embedded "manager" join: the database cannot always resolve a profiles-to-profiles relationship; the name is looked up in the list instead.
+const PROFILE_SELECT = "*, sites ( id, name )";
 
 const TASK_SELECT =
   "*, assignee:profiles!tasks_assignee_id_fkey ( id, full_name ), creator:profiles!tasks_created_by_fkey ( id, full_name ), incidents ( id, reference )";
@@ -411,7 +412,9 @@ export class SupabaseIncidentRepository implements IncidentRepository {
   async listProfiles(): Promise<Profile[]> {
     const result = await this.client.from("profiles").select(PROFILE_SELECT).order("full_name");
     if (result.error) throw result.error;
-    return ((result.data ?? []) as unknown as ProfileQueryRow[]).map(mapProfile);
+    const rows = (result.data ?? []) as unknown as ProfileQueryRow[];
+    const names = new Map(rows.map((row) => [row.id, row.full_name]));
+    return rows.map((row) => ({ ...mapProfile(row), reportsToName: row.reports_to ? (names.get(row.reports_to) ?? null) : null }));
   }
 
   async getProfileByEmail(email: string): Promise<Profile | null> {

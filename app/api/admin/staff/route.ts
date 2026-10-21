@@ -8,7 +8,8 @@ import type { CreateStaffInput, CreateStaffResult } from "@/lib/types";
 
 export const runtime = "nodejs";
 
-const PROFILE_SELECT = "*, sites ( id, name ), manager:profiles!profiles_reports_to_fkey ( id, full_name )";
+// No embedded "manager" join: the database cannot always resolve a profiles-to-profiles relationship; the name is looked up in the list instead.
+const PROFILE_SELECT = "*, sites ( id, name )";
 
 function fail(status: number, error: string) {
   return NextResponse.json({ ok: false, error }, { status });
