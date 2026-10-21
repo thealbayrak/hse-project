@@ -9,7 +9,9 @@ import type {
   SafetyWalkItemRow,
   SafetyWalkRow,
   SiteRow,
+  MembershipRequestRow,
   RiskTypeRow,
+  SubcontractorRow,
   TaskRow,
   TemplateRow,
 } from "@/lib/supabase/database.types";
@@ -21,8 +23,10 @@ import type {
   ChecklistItem,
   ChecklistTemplate,
   Contact,
+  MembershipRequest,
   Organization,
   RiskType,
+  Subcontractor,
   Incident,
   IncidentAnalysis,
   IncidentStatus,
@@ -139,10 +143,10 @@ export function mapCategories(values: unknown): RiskCategory[] {
 
 export function mapSeverity(value: string): Severity {
   const normalized = value.trim().toLowerCase();
-  if (normalized === "low" || normalized === "medium" || normalized === "high" || normalized === "critical") {
+  if (normalized === "unrated" || normalized === "low" || normalized === "medium" || normalized === "high" || normalized === "critical") {
     return normalized;
   }
-  return "medium";
+  return "unrated";
 }
 
 export function mapStatus(value: string): IncidentStatus {
@@ -189,6 +193,9 @@ export function mapIncident(row: IncidentQueryRow, mediaUrl: MediaUrlResolver = 
     reference: row.reference || `SS-${row.id.slice(0, 8).toUpperCase()}`,
     type: mapIncidentType(row.type),
     typeNote: row.type_note ?? null,
+    hurt: row.hurt ?? null,
+    dangerPresent: row.danger_present ?? null,
+    subcontractor: row.subcontractor ?? null,
     siteId: row.site_id ?? "",
     organizationId: row.organization_id ?? null,
     locationNote: row.location_note ?? null,
@@ -259,6 +266,7 @@ export function mapSite(row: SiteQueryRow): Site {
 
 export function mapRole(value: string): Role {
   const normalized = value.trim().toLowerCase().replaceAll("-", "_").replaceAll(" ", "_");
+  if (normalized === "action_owner" || normalized === "aksiyon_sorumlusu" || normalized === "åtgärdsansvarig" || normalized === "atgardsansvarig") return "action_owner";
   if (normalized === "foreman" || normalized === "supervisor" || normalized === "arbetsledare" || normalized === "şef" || normalized === "sef") return "foreman";
   if (normalized === "safety_officer" || normalized === "skyddsombud" || normalized === "officer" || normalized === "isg_uzmani" || normalized === "isg_uzmanı") return "safety_officer";
   if (normalized === "hse_manager" || normalized === "manager" || normalized === "arbetsmiljöchef" || normalized === "isg_muduru" || normalized === "isg_müdürü") return "hse_manager";
@@ -440,7 +448,8 @@ export function parseAnalysis(value: unknown): IncidentAnalysis | null {
     preventiveActions: stringList(raw.preventiveActions),
     amlReportRequired: Boolean(raw.amlReportRequired),
     amlReason: typeof raw.amlReason === "string" ? raw.amlReason : "",
-    riskLevel: mapSeverity(typeof raw.riskLevel === "string" ? raw.riskLevel : "medium"),
+    // The assistant always names a level; an unreadable one falls back to medium (never "unrated").
+    riskLevel: ((level) => (level === "unrated" ? "medium" : level))(mapSeverity(typeof raw.riskLevel === "string" ? raw.riskLevel : "medium")),
     meetingRecommended: Boolean(raw.meetingRecommended),
     meetingAgenda: stringList(raw.meetingAgenda),
   };
@@ -589,4 +598,21 @@ export function mapOrganization(row: OrganizationRow): Organization {
 
 export function mapRiskType(row: RiskTypeRow): RiskType {
   return { id: row.id, organizationId: row.organization_id, label: row.label, active: row.active };
+}
+
+export function mapSubcontractor(row: SubcontractorRow): Subcontractor {
+  return { id: row.id, organizationId: row.organization_id, name: row.name, active: row.active };
+}
+
+export function mapMembershipRequest(row: MembershipRequestRow): MembershipRequest {
+  const status = row.status === "approved" || row.status === "rejected" ? row.status : "pending";
+  return {
+    id: row.id,
+    organizationId: row.organization_id,
+    siteId: row.site_id,
+    fullName: row.full_name,
+    email: row.email,
+    status,
+    createdAt: row.created_at,
+  };
 }

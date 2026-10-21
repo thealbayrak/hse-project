@@ -5,7 +5,7 @@ import { createMockRepository } from "@/lib/data/mock-repository";
 
 describe("who may add whom", () => {
   it("lets managers add field staff only, and the owner anyone", () => {
-    expect(assignableRoles("hse_manager")).toEqual(["worker", "foreman", "safety_officer"]);
+    expect(assignableRoles("hse_manager")).toEqual(["worker", "foreman", "action_owner", "safety_officer"]);
     expect(assignableRoles("super_admin")).toContain("hse_manager");
     expect(assignableRoles("safety_officer")).toEqual([]);
   });

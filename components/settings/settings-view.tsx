@@ -3,11 +3,13 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
-import { Building2Icon, EyeOffIcon, MapPinIcon, PlusIcon, ShieldAlertIcon, UploadIcon, UsersIcon, XIcon } from "lucide-react";
+import { Building2Icon, EyeOffIcon, HardHatIcon, MapPinIcon, PlusIcon, QrCodeIcon, ShieldAlertIcon, UploadIcon, UsersIcon, XIcon } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { QrBlock } from "@/components/qr/qr-block";
 import { StaffForm } from "@/components/settings/staff-form";
+import { placeReportUrl } from "@/lib/qr/urls";
 import { can } from "@/lib/auth/permissions";
 import { RISK_CATEGORIES } from "@/lib/constants";
 import { categoryLabel } from "@/lib/format";
@@ -15,7 +17,7 @@ import { useLanguage } from "@/lib/i18n/LanguageContext";
 import { useIncidentStore } from "@/lib/store/incident-store";
 import { panelClass } from "@/lib/tones";
 import { cn } from "@/lib/utils";
-import type { Organization, Profile, RiskType } from "@/lib/types";
+import type { Organization, Profile, RiskType, Subcontractor } from "@/lib/types";
 
 function errorText(caught: unknown, fallback: string) {
   return (caught as { message?: string })?.message ?? fallback;
@@ -32,6 +34,9 @@ export function SettingsView() {
     listOrganizations,
     listProfiles,
     listRiskTypes,
+    listSubcontractors,
+    createSubcontractor,
+    removeSubcontractor,
     createRiskType,
     removeRiskType,
     createSite,
@@ -45,6 +50,9 @@ export function SettingsView() {
   const [chosenOrg, setChosenOrg] = useState<string>(searchParams.get("org") ?? "");
   const [people, setPeople] = useState<Profile[]>([]);
   const [riskTypes, setRiskTypes] = useState<RiskType[]>([]);
+  const [subcontractors, setSubcontractors] = useState<Subcontractor[]>([]);
+  const [newSub, setNewSub] = useState("");
+  const origin = typeof window === "undefined" ? "" : window.location.origin;
   const [newSite, setNewSite] = useState({ name: "", city: "" });
   const [newRisk, setNewRisk] = useState("");
   const [newArea, setNewArea] = useState<Record<string, string>>({});
@@ -70,11 +78,12 @@ export function SettingsView() {
   useEffect(() => {
     if (!allowed || !organizationId) return;
     let cancelled = false;
-    Promise.all([listProfiles(), listRiskTypes(organizationId)])
-      .then(([profiles, risks]) => {
+    Promise.all([listProfiles(), listRiskTypes(organizationId), listSubcontractors(organizationId)])
+      .then(([profiles, risks, subs]) => {
         if (cancelled) return;
         setPeople(profiles.filter((person) => person.organizationId === organizationId));
         setRiskTypes(risks);
+        setSubcontractors(subs);
       })
       .catch((caught) => {
         if (!cancelled) toast.error(errorText(caught, t("toast.capaFailed")));
@@ -82,7 +91,7 @@ export function SettingsView() {
     return () => {
       cancelled = true;
     };
-  }, [allowed, organizationId, listProfiles, listRiskTypes, t]);
+  }, [allowed, organizationId, listProfiles, listRiskTypes, listSubcontractors, t]);
 
   if (!allowed) {
     return <p className={cn("rounded-xl border px-4 py-3 text-sm", panelClass.warning)}>{t("auth.body")}</p>;
@@ -100,6 +109,18 @@ export function SettingsView() {
         )}
       </div>
     );
+  }
+
+  async function addSubcontractor() {
+    const name = newSub.trim();
+    if (!name) return;
+    try {
+      const created = await createSubcontractor(organizationId, name);
+      setSubcontractors((current) => [...current, created].sort((a, b) => a.name.localeCompare(b.name)));
+      setNewSub("");
+    } catch (caught) {
+      toast.error(errorText(caught, t("toast.capaFailed")));
+    }
   }
 
   async function addSite() {
@@ -215,6 +236,16 @@ export function SettingsView() {
                   {t("picker.add")}
                 </Button>
               </div>
+              <details className="mt-3 rounded-xl border border-border bg-background/60 px-3 py-2">
+                <summary className="flex min-h-10 cursor-pointer items-center gap-2 text-sm font-medium">
+                  <QrCodeIcon className="size-4" />
+                  {t("settings.placeQr")}
+                </summary>
+                <div className="grid gap-3 pt-3 sm:grid-cols-[13rem_1fr] sm:items-center">
+                  <QrBlock url={placeReportUrl(site.id, origin)} title={site.name} subtitle={site.city || undefined} />
+                  <p className="text-xs text-muted-foreground">{t("settings.placeQrHint")}</p>
+                </div>
+              </details>
             </div>
           ))}
         </div>
@@ -274,6 +305,50 @@ export function SettingsView() {
           <summary className="cursor-pointer">{t("settings.builtInRisks")}</summary>
           <p className="mt-2">{RISK_CATEGORIES.map((item) => categoryLabel(item.id, locale)).join(" · ")}</p>
         </details>
+      </section>
+
+      {/* Subcontractors */}
+      <section className="space-y-3 rounded-2xl border border-border bg-card p-4">
+        <h2 className="flex items-center gap-2 text-lg font-semibold">
+          <HardHatIcon className="size-5" />
+          {t("settings.subsTitle")}
+        </h2>
+        <p className="text-sm text-muted-foreground">{t("settings.subsHint")}</p>
+        <div className="flex flex-wrap gap-1.5">
+          {subcontractors.map((sub) => (
+            <span key={sub.id} className="inline-flex items-center gap-1 rounded-full border border-border bg-secondary/40 px-2.5 py-1 text-sm">
+              {sub.name}
+              <button
+                type="button"
+                aria-label={`× ${sub.name}`}
+                onClick={() =>
+                  void removeSubcontractor(sub.id)
+                    .then(() => setSubcontractors((current) => current.filter((item) => item.id !== sub.id)))
+                    .catch((caught) => toast.error(errorText(caught, t("toast.capaFailed"))))
+                }
+                className="rounded-full p-0.5 text-muted-foreground hover:text-foreground"
+              >
+                <XIcon className="size-3.5" />
+              </button>
+            </span>
+          ))}
+          {subcontractors.length === 0 && <span className="text-sm text-muted-foreground">{t("settings.noSubs")}</span>}
+        </div>
+        <div className="flex gap-2">
+          <Input
+            value={newSub}
+            onChange={(event) => setNewSub(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === "Enter") void addSubcontractor();
+            }}
+            placeholder={t("settings.subPlaceholder")}
+            className="h-11"
+          />
+          <Button type="button" className="h-11 shrink-0 gap-1" onClick={() => void addSubcontractor()} disabled={!newSub.trim()}>
+            <PlusIcon className="size-4" />
+            {t("picker.add")}
+          </Button>
+        </div>
       </section>
 
       {/* People */}

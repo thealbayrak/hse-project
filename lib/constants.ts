@@ -78,8 +78,9 @@ export const RISK_CATEGORIES: {
   { id: "other", label: "Other" },
 ];
 
+/** The levels a manager can pick; "unrated" is the waiting state, never chosen. */
 export const SEVERITY_LEVELS: {
-  id: Severity;
+  id: Exclude<Severity, "unrated">;
   label: string;
   hint: string;
 }[] = [

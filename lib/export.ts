@@ -46,6 +46,8 @@ export function incidentRows(incidents: Incident[], locale: Locale = "en") {
     t("export.notes"),
     t("export.description"),
     t("export.summary"),
+    t("export.subcontractor"),
+    t("export.hurt"),
   ];
   const rows = incidents.map((incident) => [
     incident.reference,
@@ -62,6 +64,8 @@ export function incidentRows(incidents: Incident[], locale: Locale = "en") {
     incident.capa?.notes ?? "",
     incident.description,
     incident.summarySv ?? "",
+    incident.subcontractor ?? "",
+    incident.hurt === true ? t("buttons.yes") : incident.hurt === false ? t("buttons.no") : "",
   ]);
   return { header, rows };
 }

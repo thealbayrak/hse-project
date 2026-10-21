@@ -39,7 +39,7 @@ describe("tabOf", () => {
 });
 
 describe("matchesFilters", () => {
-  const base = { statuses: [], severities: [], types: [], categories: [], siteIds: [], from: "", to: "" };
+  const base = { statuses: [], severities: [], types: [], categories: [], siteIds: [], subcontractors: [], from: "", to: "" };
 
   it("matches everything when nothing is selected", () => {
     expect(matchesFilters(incident({}), base)).toBe(true);

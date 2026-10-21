@@ -38,6 +38,8 @@ const MANAGER: Permission[] = [...OFFICER, "people.manage", "settings.manage"];
 const MATRIX: Record<Role, Permission[]> = {
   worker: [],
   foreman: ["dashboard.view", "tasks.view", "reports.view", "audits.conduct"],
+  // Action owners only work on what is assigned to them (tasks and the reports they own).
+  action_owner: ["tasks.view"],
   safety_officer: OFFICER,
   hse_manager: MANAGER,
   admin: MANAGER,
@@ -55,6 +57,7 @@ export function can(role: Role | null | undefined, permission: Permission) {
 /** Routes that need a signed-in user, and the permission each one needs on top. */
 export const PROTECTED_ROUTES: { prefix: string; permission: Permission }[] = [
   { prefix: "/dashboard", permission: "dashboard.view" },
+  { prefix: "/board", permission: "dashboard.view" },
   { prefix: "/skyddsrond", permission: "walk.conduct" },
   { prefix: "/reports", permission: "reports.view" },
   { prefix: "/tasks", permission: "tasks.view" },

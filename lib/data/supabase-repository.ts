@@ -10,7 +10,9 @@ import {
   mapAudit,
   mapContact,
   mapIncident,
+  mapMembershipRequest,
   mapOrganization,
+  mapSubcontractor,
   mapProfile,
   mapRiskType,
   mapRole,
@@ -33,6 +35,9 @@ import type {
   Audit,
   AuditItemResult,
   CreateOrganizationInput,
+  MembershipRequest,
+  MembershipRequestInput,
+  Subcontractor,
   CreateSiteInput,
   CreateStaffInput,
   CreateStaffResult,
@@ -143,6 +148,9 @@ export class SupabaseIncidentRepository implements IncidentRepository {
       p_organization_id: input.organizationId ?? null,
       p_location_note: input.locationNote ?? null,
       p_type_note: input.typeNote ?? null,
+      p_hurt: input.hurt ?? null,
+      p_danger_present: input.dangerPresent ?? null,
+      p_subcontractor: input.subcontractor ?? null,
       p_location_id: locationIds[0] ?? null,
       p_location_ids: locationIds,
       p_type: input.type,
@@ -187,6 +195,9 @@ export class SupabaseIncidentRepository implements IncidentRepository {
       organizationId: input.organizationId ?? site?.organizationId ?? null,
       locationNote: input.locationNote ?? null,
       typeNote: input.typeNote ?? null,
+      hurt: input.hurt ?? null,
+      dangerPresent: input.dangerPresent ?? null,
+      subcontractor: input.subcontractor ?? null,
       severity: input.severity,
       description: input.description,
       mediaUrls: input.mediaUrls,
@@ -234,7 +245,7 @@ export class SupabaseIncidentRepository implements IncidentRepository {
       incident_id: incidentId,
       assignee_id: capa.assigneeId || null,
       assignee_name: capa.assigneeName,
-      due_date: capa.dueDate,
+      due_date: capa.dueDate || null,
       status: capa.status,
       notes: capa.notes,
     };
@@ -639,7 +650,7 @@ export class SupabaseIncidentRepository implements IncidentRepository {
             type: "hazard",
             category: "unclassified",
             categories: [],
-            severity: "medium",
+            severity: "unrated",
             status: "open",
             description: description.length >= 8 ? description : `${description} (${audit.templateName})`,
             source: "audit",
@@ -787,6 +798,54 @@ export class SupabaseIncidentRepository implements IncidentRepository {
 
   async removeRiskType(id: string): Promise<void> {
     const result = await this.client.from("risk_types").delete().eq("id", id);
+    if (result.error) throw result.error;
+  }
+
+  async listSubcontractors(organizationId?: string | null): Promise<Subcontractor[]> {
+    let query = this.client.from("subcontractors").select("*").eq("active", true).order("name");
+    if (organizationId) query = query.eq("organization_id", organizationId);
+    const result = await query;
+    if (result.error) throw result.error;
+    return (result.data ?? []).map(mapSubcontractor);
+  }
+
+  async createSubcontractor(organizationId: string, name: string): Promise<Subcontractor> {
+    const result = await this.client
+      .from("subcontractors")
+      .insert({ organization_id: organizationId, name: name.trim().slice(0, 120) })
+      .select("*")
+      .single();
+    if (result.error) throw result.error;
+    return mapSubcontractor(result.data);
+  }
+
+  async removeSubcontractor(id: string): Promise<void> {
+    const result = await this.client.from("subcontractors").delete().eq("id", id);
+    if (result.error) throw result.error;
+  }
+
+  async requestMembership(input: MembershipRequestInput): Promise<"requested" | "already_member"> {
+    const result = await this.client.rpc("request_membership", {
+      p_organization_id: input.organizationId,
+      p_email: input.email,
+      p_name: input.name ?? null,
+      p_site_id: input.siteId ?? null,
+    });
+    if (result.error) throw result.error;
+    return result.data === "already_member" ? "already_member" : "requested";
+  }
+
+  async listMembershipRequests(): Promise<MembershipRequest[]> {
+    const result = await this.client.from("membership_requests").select("*").eq("status", "pending").order("created_at");
+    if (result.error) throw result.error;
+    return (result.data ?? []).map(mapMembershipRequest);
+  }
+
+  async decideMembership(id: string, status: "approved" | "rejected", decidedBy: string | null): Promise<void> {
+    const result = await this.client
+      .from("membership_requests")
+      .update({ status, decided_by: decidedBy, decided_at: new Date().toISOString() })
+      .eq("id", id);
     if (result.error) throw result.error;
   }
 

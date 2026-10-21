@@ -19,6 +19,7 @@ import {
   ListIcon,
   ShieldAlertIcon,
   SirenIcon,
+  UserCheckIcon,
   UserRoundXIcon,
 } from "lucide-react";
 import { toast } from "sonner";
@@ -27,6 +28,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Input } from "@/components/ui/input";
 import { StatutoryBanner } from "@/components/layout/statutory-banner";
 import { AiReportButton } from "@/components/ai/ai-report-dialog";
+import { KpiPanel } from "@/components/dashboard/kpi-panel";
 import { IncidentBoard } from "@/components/dashboard/incident-board";
 import { IncidentDetailDialog } from "@/components/dashboard/incident-detail-dialog";
 import { LatestSkyddsrondCard } from "@/components/dashboard/latest-skyddsrond-card";
@@ -36,6 +38,7 @@ import { RISK_CATEGORIES } from "@/lib/constants";
 import { downloadIncidentsPdf, downloadIncidentsXlsx } from "@/lib/export";
 import { categoriesLabel, categoryLabel, placeLabel, relativeTime, severityLabel, statusLabel, typeLabel } from "@/lib/format";
 import { useLanguage } from "@/lib/i18n/LanguageContext";
+import { isPendingReview } from "@/lib/dashboard/kpis";
 import { inPeriod } from "@/lib/reports/aggregate";
 import { useIncidentStore } from "@/lib/store/incident-store";
 import { cn } from "@/lib/utils";
@@ -52,7 +55,7 @@ import {
 } from "@/lib/types";
 
 const STATUS_FILTERS: IncidentStatus[] = ["open", "in-progress", "resolved"];
-const SEVERITY_FILTERS: Severity[] = ["critical", "high", "medium", "low"];
+const SEVERITY_FILTERS: Severity[] = ["unrated", "critical", "high", "medium", "low"];
 
 export type DashboardTab = "observations" | "audits" | "accidents";
 const TABS: { id: DashboardTab; icon: typeof EyeIcon }[] = [
@@ -63,7 +66,7 @@ const TABS: { id: DashboardTab; icon: typeof EyeIcon }[] = [
 
 const OBSERVATION_TYPES: IncidentType[] = ["hazard", "near-miss", "environmental", "good-observation", "positive-observation"];
 
-type Focus = "overdue" | "unowned" | null;
+type Focus = "overdue" | "unowned" | "pending" | null;
 
 const DAY_MS = 86_400_000;
 
@@ -98,17 +101,20 @@ export interface FeedFilters {
   types: IncidentType[];
   categories: RiskCategory[];
   siteIds: string[];
+  /** Subcontractor names; "" matches reports without one. */
+  subcontractors: string[];
   from: string;
   to: string;
 }
 
-const EMPTY_FILTERS: FeedFilters = { statuses: [], severities: [], types: [], categories: [], siteIds: [], from: "", to: "" };
+const EMPTY_FILTERS: FeedFilters = { statuses: [], severities: [], types: [], categories: [], siteIds: [], subcontractors: [], from: "", to: "" };
 
 export function matchesFilters(incident: Incident, filters: FeedFilters) {
   if (filters.statuses.length && !filters.statuses.includes(incident.status)) return false;
   if (filters.severities.length && !filters.severities.includes(incident.severity)) return false;
   if (filters.types.length && !filters.types.includes(incident.type)) return false;
   if (filters.siteIds.length && !filters.siteIds.includes(incident.siteId)) return false;
+  if (filters.subcontractors.length && !filters.subcontractors.includes((incident.subcontractor ?? "").trim())) return false;
   if (filters.categories.length) {
     const own = incidentCategories(incident);
     if (!filters.categories.some((category) => own.includes(category))) return false;
@@ -124,7 +130,7 @@ function toggle<T>(list: T[], value: T): T[] {
 }
 
 export function DashboardView() {
-  const { incidents, metrics, loading, error, highlightedIds, latestSafetyWalk, sites, role, listAudits } = useIncidentStore();
+  const { incidents, metrics, loading, error, highlightedIds, latestSafetyWalk, sites, role, listAudits, listMembershipRequests } = useIncidentStore();
   const { locale, t } = useLanguage();
   const searchParams = useSearchParams();
   const [tab, setTab] = useState<DashboardTab>("observations");
@@ -137,6 +143,20 @@ export function DashboardView() {
   const [audits, setAudits] = useState<Audit[] | null>(null);
   const deepLinkId = searchParams.get("incidentId");
   const canAudit = can(role, "audits.conduct");
+  const canManagePeople = can(role, "people.manage");
+  const [pendingUsers, setPendingUsers] = useState(0);
+  useEffect(() => {
+    if (!canManagePeople) return;
+    let cancelled = false;
+    listMembershipRequests()
+      .then((rows) => {
+        if (!cancelled) setPendingUsers(rows.length);
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, [canManagePeople, listMembershipRequests]);
 
   // `?incidentId=` (from the alert email) opens the incident until the user closes it.
   const activeId = selectedId ?? (deepLinkId && deepLinkId !== dismissedDeepLink ? deepLinkId : null);
@@ -165,8 +185,10 @@ export function DashboardView() {
   const today = stockholmToday();
   const overdue = useMemo(() => incidents.filter((incident) => isOverdue(incident, today)), [incidents, today]);
   const unowned = useMemo(() => incidents.filter(isUnownedCritical), [incidents]);
+  const pendingReview = useMemo(() => incidents.filter(isPendingReview), [incidents]);
   const walkStale = isWalkStale(latestSafetyWalk);
-  const attentionCount = (overdue.length ? 1 : 0) + (unowned.length ? 1 : 0) + (walkStale ? 1 : 0);
+  const attentionCount =
+    (pendingReview.length ? 1 : 0) + (overdue.length ? 1 : 0) + (unowned.length ? 1 : 0) + (walkStale ? 1 : 0) + (pendingUsers ? 1 : 0);
 
   const inTab = useMemo(() => incidents.filter((incident) => tabOf(incident) === tab), [incidents, tab]);
   const tabCounts = useMemo(
@@ -183,13 +205,28 @@ export function DashboardView() {
       inTab.filter((incident) => {
         if (focus === "overdue" && !isOverdue(incident, today)) return false;
         if (focus === "unowned" && !isUnownedCritical(incident)) return false;
+        if (focus === "pending" && !isPendingReview(incident)) return false;
         return matchesFilters(incident, filters);
       }),
     [inTab, filters, focus, today]
   );
 
   const activeFilterCount =
-    filters.statuses.length + filters.severities.length + filters.types.length + filters.categories.length + filters.siteIds.length + (filters.from ? 1 : 0) + (filters.to ? 1 : 0);
+    filters.statuses.length +
+    filters.severities.length +
+    filters.types.length +
+    filters.categories.length +
+    filters.siteIds.length +
+    filters.subcontractors.length +
+    (filters.from ? 1 : 0) +
+    (filters.to ? 1 : 0);
+
+  // Subcontractors present in this tab (reports without one are offered as "unspecified").
+  const subcontractorOptions = useMemo(() => {
+    const names = new Set(inTab.map((incident) => (incident.subcontractor ?? "").trim()));
+    const named = [...names].filter(Boolean).sort((a, b) => a.localeCompare(b));
+    return names.has("") && named.length ? [...named, ""] : named;
+  }, [inTab]);
 
   // Types offered in the type filter depend on the tab.
   const typeOptions: IncidentType[] = tab === "accidents" ? ["accident"] : tab === "audits" ? ["hazard", "near-miss", "environmental"] : OBSERVATION_TYPES;
@@ -249,6 +286,30 @@ export function DashboardView() {
               </p>
             ) : (
               <ul className="mt-2 flex flex-wrap gap-2">
+                {pendingReview.length > 0 && (
+                  <li>
+                    <AttentionChip
+                      active={focus === "pending"}
+                      icon={ClipboardCheckIcon}
+                      label={t("dashboard.pendingReview", { n: pendingReview.length })}
+                      onClick={() => {
+                        setFocus(focus === "pending" ? null : "pending");
+                        setTab("observations");
+                      }}
+                    />
+                  </li>
+                )}
+                {pendingUsers > 0 && (
+                  <li>
+                    <Link
+                      href="/people"
+                      className="inline-flex min-h-10 items-center gap-2 rounded-full border border-current/30 bg-background/60 px-3 text-sm font-medium transition-colors hover:bg-background"
+                    >
+                      <UserCheckIcon className="size-4" />
+                      {t("dashboard.pendingUsers", { n: pendingUsers })}
+                    </Link>
+                  </li>
+                )}
                 {overdue.length > 0 && (
                   <li>
                     <AttentionChip
@@ -295,6 +356,8 @@ export function DashboardView() {
         <MetricTile label={t("dashboard.criticalNear")} value={metrics.criticalNearMisses} icon={AlertOctagonIcon} tone="red" loading={showSkeleton} />
         <MetricTile label={t("dashboard.daysFree")} value={metrics.daysIncidentFree} icon={ShieldAlertIcon} tone="emerald" loading={showSkeleton} />
       </div>
+
+      <KpiPanel incidents={filtered} />
 
       {/* 3. Tabs: observations, walks & audits, accidents */}
       <div role="tablist" aria-label={t("dashboard.tabs")} className="grid grid-cols-3 gap-1 rounded-2xl border border-border bg-secondary/40 p-1">
@@ -406,6 +469,19 @@ export function DashboardView() {
             {categoryOptions.map((id) => (
               <FilterChip key={id} active={filters.categories.includes(id)} onClick={() => setFilters((f) => ({ ...f, categories: toggle(f.categories, id) }))}>
                 {categoryLabel(id, locale)}
+              </FilterChip>
+            ))}
+          </FilterRow>
+        )}
+        {subcontractorOptions.length > 0 && (
+          <FilterRow label={t("dashboard.filterSubcontractor")}>
+            {subcontractorOptions.map((name) => (
+              <FilterChip
+                key={name || "none"}
+                active={filters.subcontractors.includes(name)}
+                onClick={() => setFilters((f) => ({ ...f, subcontractors: toggle(f.subcontractors, name) }))}
+              >
+                {name || t("kpi.unspecified")}
               </FilterChip>
             ))}
           </FilterRow>

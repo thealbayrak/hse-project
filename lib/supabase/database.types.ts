@@ -112,6 +112,9 @@ export interface Database {
           audit_id: string | null;
           location_note: string | null;
           type_note: string | null;
+          hurt: boolean | null;
+          danger_present: boolean | null;
+          subcontractor: string | null;
           created_at: string;
           updated_at: string | null;
         };
@@ -124,6 +127,9 @@ export interface Database {
           location_ids?: string[];
           location_note?: string | null;
           type_note?: string | null;
+          hurt?: boolean | null;
+          danger_present?: boolean | null;
+          subcontractor?: string | null;
           location?: string | null;
           type: string;
           category?: string;
@@ -226,6 +232,50 @@ export interface Database {
           updated_at?: string | null;
         };
         Update: Partial<Database["public"]["Tables"]["tasks"]["Insert"]>;
+        Relationships: [];
+      };
+      subcontractors: {
+        Row: {
+          id: string;
+          organization_id: string;
+          name: string;
+          active: boolean;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          organization_id: string;
+          name: string;
+          active?: boolean;
+          created_at?: string;
+        };
+        Update: Partial<Database["public"]["Tables"]["subcontractors"]["Insert"]>;
+        Relationships: [];
+      };
+      membership_requests: {
+        Row: {
+          id: string;
+          organization_id: string;
+          site_id: string | null;
+          full_name: string | null;
+          email: string;
+          status: string;
+          decided_by: string | null;
+          decided_at: string | null;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          organization_id: string;
+          site_id?: string | null;
+          full_name?: string | null;
+          email: string;
+          status?: string;
+          decided_by?: string | null;
+          decided_at?: string | null;
+          created_at?: string;
+        };
+        Update: Partial<Database["public"]["Tables"]["membership_requests"]["Insert"]>;
         Relationships: [];
       };
       risk_types: {
@@ -519,12 +569,19 @@ export interface Database {
           p_organization_id?: string | null;
           p_location_note?: string | null;
           p_type_note?: string | null;
+          p_hurt?: boolean | null;
+          p_danger_present?: boolean | null;
+          p_subcontractor?: string | null;
         };
         Returns: { id: string; reference: string; created_at: string; tracking_code: string | null }[];
       };
       audit_open_nonconformities: {
         Args: { p_audit_id: string };
         Returns: number;
+      };
+      request_membership: {
+        Args: { p_organization_id: string; p_email: string; p_name?: string | null; p_site_id?: string | null };
+        Returns: string;
       };
       list_org_people: {
         Args: { p_organization_id: string };
@@ -562,6 +619,8 @@ export interface Database {
           reporter_name: string | null;
           is_anonymous: boolean;
           tracking_code: string | null;
+          hurt: boolean | null;
+          danger_present: boolean | null;
         }[];
       };
       track_incident: {
@@ -608,6 +667,8 @@ export type SafetyWalkItemRow = Database["public"]["Tables"]["safety_walk_items"
 export type ClaimedAlertRow = Database["public"]["Functions"]["claim_incident_alert"]["Returns"][number];
 export type ProfileRow = Database["public"]["Tables"]["profiles"]["Row"];
 export type TaskRow = Database["public"]["Tables"]["tasks"]["Row"];
+export type SubcontractorRow = Database["public"]["Tables"]["subcontractors"]["Row"];
+export type MembershipRequestRow = Database["public"]["Tables"]["membership_requests"]["Row"];
 export type RiskTypeRow = Database["public"]["Tables"]["risk_types"]["Row"];
 export type TemplateRow = Database["public"]["Tables"]["checklist_templates"]["Row"];
 export type AuditRow = Database["public"]["Tables"]["audits"]["Row"];

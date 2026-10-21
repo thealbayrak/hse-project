@@ -7,6 +7,7 @@ import {
   ClipboardListIcon,
   ClipboardPlusIcon,
   EyeOffIcon,
+  KanbanSquareIcon,
   LayoutDashboardIcon,
   LineChartIcon,
   LogInIcon,
@@ -29,6 +30,7 @@ import { cn } from "@/lib/utils";
 
 const STAFF_LINKS: { href: string; permission: Permission; titleKey: string; hintKey: string; icon: typeof LayoutDashboardIcon }[] = [
   { href: "/dashboard", permission: "dashboard.view", titleKey: "home.dashboard", hintKey: "home.dashboardHint", icon: LayoutDashboardIcon },
+  { href: "/board", permission: "dashboard.view", titleKey: "nav.board", hintKey: "home.boardHint", icon: KanbanSquareIcon },
   { href: "/tasks", permission: "tasks.view", titleKey: "home.tasks", hintKey: "home.tasksHint", icon: ClipboardListIcon },
   { href: "/reports", permission: "reports.view", titleKey: "home.reports", hintKey: "home.reportsHint", icon: LineChartIcon },
   { href: "/audits", permission: "audits.conduct", titleKey: "home.audits", hintKey: "home.auditsHint", icon: ClipboardCheckIcon },

@@ -7,6 +7,8 @@ import { toSafetyWalkSummary } from "@/lib/supabase/mappers";
 import type {
   Audit,
   AuditItemResult,
+  MembershipRequest,
+  Subcontractor,
   Organization,
   RiskType,
   Site,
@@ -76,6 +78,13 @@ export function createMockRepository(): IncidentRepository {
     { id: "rt-glass", organizationId: "org-sydkomp", label: "Glass breakage", active: true },
   ];
   const siteOf = (id: string) => sites.find((site) => site.id === id) ?? null;
+  let subcontractors: Subcontractor[] = [
+    { id: "sub-acme", organizationId: "org-volvo", name: "Acme Installations AB", active: true },
+    { id: "sub-clean", organizationId: "org-volvo", name: "Nordic Cleaning", active: true },
+    { id: "sub-betong", organizationId: "org-nordic", name: "Betong & Bygg AB", active: true },
+    { id: "sub-el", organizationId: "org-nordic", name: "El-Team Syd", active: true },
+  ];
+  let membershipRequests: MembershipRequest[] = [];
   let walks: SafetyWalk[] = structuredClone(SEED_SAFETY_WALKS);
   let contacts: Contact[] = [
     { id: "contact-anna", name: "Anna Bergström", email: "anna.bergstrom@example.se", role: "HSE Manager" },
@@ -146,6 +155,9 @@ export function createMockRepository(): IncidentRepository {
         organizationId: site?.organizationId ?? input.organizationId ?? null,
         locationNote: input.locationNote?.trim() || null,
         typeNote: input.typeNote?.trim() || null,
+        hurt: input.hurt ?? null,
+        dangerPresent: input.dangerPresent ?? null,
+        subcontractor: input.subcontractor?.trim() || null,
         category: categories[0] ?? "unclassified",
         categories,
         severity: input.severity,
@@ -447,7 +459,7 @@ export function createMockRepository(): IncidentRepository {
             locationIds: [],
             category: "unclassified",
             categories: [],
-            severity: "medium",
+            severity: "unrated",
             description: [item.title, item.note.trim()].filter(Boolean).join(" — "),
             mediaUrls: [],
             anonymous: false,
@@ -569,6 +581,57 @@ export function createMockRepository(): IncidentRepository {
 
     async removeRiskType(id) {
       riskTypes = riskTypes.filter((item) => item.id !== id);
+    },
+
+    async listSubcontractors(organizationId) {
+      return structuredClone(subcontractors.filter((item) => item.active && (!organizationId || item.organizationId === organizationId)));
+    },
+
+    async createSubcontractor(organizationId, name) {
+      const clean = name.trim().slice(0, 120);
+      if (subcontractors.some((item) => item.organizationId === organizationId && item.name.toLowerCase() === clean.toLowerCase())) {
+        throw new Error("This subcontractor already exists.");
+      }
+      const created: Subcontractor = { id: `sub-${crypto.randomUUID().slice(0, 8)}`, organizationId, name: clean, active: true };
+      subcontractors = [...subcontractors, created];
+      return structuredClone(created);
+    },
+
+    async removeSubcontractor(id) {
+      subcontractors = subcontractors.filter((item) => item.id !== id);
+    },
+
+    async requestMembership(input) {
+      const email = input.email.trim().toLowerCase();
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) throw new Error("invalid e-mail");
+      if (!organizations.some((item) => item.id === input.organizationId)) throw new Error("unknown company");
+      if (profiles.some((person) => person.email?.toLowerCase() === email && person.organizationId === input.organizationId)) return "already_member";
+      const open = membershipRequests.some(
+        (item) => item.organizationId === input.organizationId && item.email === email && item.status === "pending"
+      );
+      if (!open) {
+        membershipRequests = [
+          ...membershipRequests,
+          {
+            id: `req-${crypto.randomUUID().slice(0, 8)}`,
+            organizationId: input.organizationId,
+            siteId: input.siteId ?? null,
+            fullName: input.name?.trim() || null,
+            email,
+            status: "pending",
+            createdAt: new Date().toISOString(),
+          },
+        ];
+      }
+      return "requested";
+    },
+
+    async listMembershipRequests() {
+      return structuredClone(membershipRequests.filter((item) => item.status === "pending"));
+    },
+
+    async decideMembership(id, status) {
+      membershipRequests = membershipRequests.map((item) => (item.id === id ? { ...item, status } : item));
     },
 
     async listOrgPeople(organizationId) {

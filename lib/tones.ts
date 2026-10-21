@@ -6,6 +6,7 @@ import type { IncidentStatus, Severity } from "@/lib/types";
  * in dark mode.
  */
 export const severityClass: Record<Severity, string> = {
+  unrated: "border-violet-500/40 bg-violet-50 text-violet-800 dark:bg-violet-500/15 dark:text-violet-300",
   low: "border-emerald-500/40 bg-emerald-50 text-emerald-800 dark:bg-emerald-500/15 dark:text-emerald-300",
   medium: "border-amber-500/40 bg-amber-50 text-amber-800 dark:bg-amber-500/15 dark:text-amber-300",
   high: "border-orange-500/40 bg-orange-50 text-orange-800 dark:bg-orange-500/15 dark:text-orange-300",
@@ -13,6 +14,7 @@ export const severityClass: Record<Severity, string> = {
 };
 
 export const severityBarClass: Record<Severity, string> = {
+  unrated: "bg-violet-500",
   low: "bg-emerald-500",
   medium: "bg-amber-400",
   high: "bg-orange-500",

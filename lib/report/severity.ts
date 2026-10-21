@@ -8,9 +8,22 @@ export interface SeverityAnswers {
 }
 
 /**
- * Workers answer two plain questions; the severity is derived from them and the
- * safety officer can correct it on the dashboard. Keeping the classification out
- * of the worker's hands avoids both under-reporting and false critical alarms.
+ * What the reporter's answers hint at, shown to a manager as a suggestion they
+ * may accept or ignore. Missing answers count as "no"; with none at all there is no hint.
+ * Nothing is stored from this: the severity is always rated by a manager.
+ */
+export function suggestSeverity(
+  type: IncidentType,
+  answers: { hurt?: boolean | null; danger?: boolean | null }
+): Severity | null {
+  if (isPositiveType(type)) return null;
+  if ((answers.hurt ?? null) === null && (answers.danger ?? null) === null) return null;
+  return deriveSeverity(type, { hurt: answers.hurt ?? false, danger: answers.danger ?? false });
+}
+
+/**
+ * The two plain questions mapped to a level. Used only to suggest a level to the
+ * manager (see suggestSeverity); a report is never rated from the answers alone.
  */
 export function deriveSeverity(type: IncidentType, answers: SeverityAnswers): Severity | null {
   // Good practice is never a risk: no questions needed.

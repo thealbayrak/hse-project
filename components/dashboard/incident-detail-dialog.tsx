@@ -19,7 +19,9 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { DEFAULT_REPORTER_NAME, INCIDENT_STATUSES, RISK_CATEGORIES, SAFETY_OFFICERS, SEVERITY_LEVELS } from "@/lib/constants";
+import Link from "next/link";
+import { DEFAULT_REPORTER_NAME, INCIDENT_STATUSES, RISK_CATEGORIES, SEVERITY_LEVELS } from "@/lib/constants";
+import { suggestSeverity } from "@/lib/report/severity";
 import {
   categoriesLabel,
   categoryLabel,
@@ -34,7 +36,7 @@ import { addBusinessDaysIsoDate } from "@/lib/skyddsrond/business-days";
 import { useIncidentStore } from "@/lib/store/incident-store";
 import { cn } from "@/lib/utils";
 import { panelClass, severityClass, statusClass } from "@/lib/tones";
-import { incidentCategories, type Incident, type IncidentStatus, type RiskCategory, type Severity } from "@/lib/types";
+import { incidentCategories, type Incident, type IncidentStatus, type Profile, type RiskCategory, type Severity } from "@/lib/types";
 
 export function IncidentDetailDialog({
   incident,
@@ -54,7 +56,20 @@ export function IncidentDetailDialog({
 }
 
 function IncidentDetail({ incident, onClose }: { incident: Incident; onClose: () => void }) {
-  const { sites, updateCapa, listRiskTypes } = useIncidentStore();
+  const { sites, updateCapa, listRiskTypes, listProfiles } = useIncidentStore();
+  // People who can own an action: the company's staff (not plain workers, not the app owner).
+  const [people, setPeople] = useState<Profile[]>([]);
+  useEffect(() => {
+    let cancelled = false;
+    listProfiles()
+      .then((rows) => {
+        if (!cancelled) setPeople(rows.filter((person) => person.active && person.role !== "worker" && person.role !== "super_admin"));
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, [listProfiles]);
   const [ownRisks, setOwnRisks] = useState<string[]>([]);
   useEffect(() => {
     if (!incident.organizationId) return;
@@ -74,9 +89,7 @@ function IncidentDetail({ incident, onClose }: { incident: Incident; onClose: ()
     ...incidentCategories(incident),
   ].filter((value, index, list) => list.indexOf(value) === index);
   const { locale, t } = useLanguage();
-  const [assigneeId, setAssigneeId] = useState<string>(
-    () => incident.capa?.assigneeId || SAFETY_OFFICERS[0].id
-  );
+  const [assigneeId, setAssigneeId] = useState<string>(() => incident.capa?.assigneeId || "");
   const [dueDate, setDueDate] = useState(() => incident.capa?.dueDate || defaultDueDate());
   const [status, setStatus] = useState<IncidentStatus>(() => incident.capa?.status ?? incident.status);
   const [severity, setSeverity] = useState<Severity>(incident.severity);
@@ -88,18 +101,31 @@ function IncidentDetail({ incident, onClose }: { incident: Incident; onClose: ()
   const [meetingOpen, setMeetingOpen] = useState(false);
   const site = sites.find((item) => item.id === incident.siteId) ?? null;
 
+  // An owner saved earlier who is no longer in the list (older reports) stays selectable.
+  const legacyOwner =
+    incident.capa?.assigneeId && !people.some((person) => person.id === incident.capa!.assigneeId)
+      ? { id: incident.capa.assigneeId, name: incident.capa.assigneeName || incident.capa.assigneeId }
+      : null;
+  const suggestion = suggestSeverity(incident.type, { hurt: incident.hurt, danger: incident.dangerPresent });
+
   async function save() {
-    const officer = SAFETY_OFFICERS.find((item) => item.id === assigneeId);
-    if (!officer || !dueDate) {
+    // The reporter does not rate the report; a manager must before it can be saved.
+    if (severity === "unrated") {
+      toast.error(t("dashboard.needSeverity"));
+      return;
+    }
+    const owner = people.find((person) => person.id === assigneeId);
+    const ownerName = owner?.fullName ?? (legacyOwner && legacyOwner.id === assigneeId ? legacyOwner.name : "");
+    if (assigneeId && !dueDate) {
       toast.error(t("toast.capaNeedOwner"));
       return;
     }
     setSaving(true);
     try {
       await updateCapa(incident.id, {
-        assigneeId: officer.id,
-        assigneeName: officer.name,
-        dueDate,
+        assigneeId,
+        assigneeName: ownerName,
+        dueDate: assigneeId ? dueDate : "",
         status,
         notes: notes.trim(),
         severity: severity !== incident.severity ? severity : undefined,
@@ -140,6 +166,9 @@ function IncidentDetail({ incident, onClose }: { incident: Incident; onClose: ()
         >
           {categoriesLabel(incidentCategories(incident), locale)}
         </span>
+        {incident.subcontractor && (
+          <span className="rounded-full border border-border px-2.5 py-1 text-xs">{incident.subcontractor}</span>
+        )}
         {incident.source === "audit" && (
           <span className="rounded-full border border-border px-2.5 py-1 text-xs">{t("audits.fromAudit")}</span>
         )}
@@ -226,6 +255,35 @@ function IncidentDetail({ incident, onClose }: { incident: Incident; onClose: ()
         <div className="grid gap-4 sm:grid-cols-2">
           <div className="space-y-2 sm:col-span-2">
             <Label>{t("dashboard.severityLabel")}</Label>
+            {(incident.hurt != null || incident.dangerPresent != null) && (
+              <div className="rounded-xl border border-border bg-background px-3 py-2.5 text-sm">
+                <p className="text-[11px] font-semibold tracking-wide text-muted-foreground uppercase">{t("dashboard.reporterSaid")}</p>
+                <ul className="mt-1 space-y-0.5">
+                  {incident.hurt != null && (
+                    <li className={cn(incident.hurt && "font-semibold text-red-700 dark:text-red-300")}>
+                      {t("report.hurtQuestion")} <strong>{incident.hurt ? t("buttons.yes") : t("buttons.no")}</strong>
+                    </li>
+                  )}
+                  {incident.dangerPresent != null && (
+                    <li className={cn(incident.dangerPresent && "font-semibold text-red-700 dark:text-red-300")}>
+                      {t("report.dangerQuestion")} <strong>{incident.dangerPresent ? t("buttons.yes") : t("buttons.no")}</strong>
+                    </li>
+                  )}
+                </ul>
+                {suggestion && severity !== suggestion && (
+                  <button
+                    type="button"
+                    onClick={() => setSeverity(suggestion)}
+                    className="mt-2 inline-flex min-h-10 items-center rounded-lg border border-border px-3 text-xs font-semibold hover:bg-secondary/60"
+                  >
+                    {t("dashboard.useSuggestion", { level: severityLabel(suggestion, locale) })}
+                  </button>
+                )}
+              </div>
+            )}
+            {severity === "unrated" && (
+              <p className={cn("rounded-lg border px-3 py-2 text-sm font-medium", severityClass.unrated)}>{t("dashboard.pendingReviewHint")}</p>
+            )}
             <div className="grid grid-cols-4 gap-2">
               {SEVERITY_LEVELS.map((item) => (
                 <button
@@ -271,24 +329,30 @@ function IncidentDetail({ incident, onClose }: { incident: Incident; onClose: ()
           </div>
           <div className="space-y-2 sm:col-span-2">
             <Label htmlFor="assignee">{t("dashboard.assignee")}</Label>
-            <div className="grid gap-2 sm:grid-cols-2">
-              {SAFETY_OFFICERS.map((officer) => (
-                <button
-                  key={officer.id}
-                  type="button"
-                  onClick={() => setAssigneeId(officer.id)}
-                  className={cn(
-                    "min-h-14 rounded-xl border px-3 py-2 text-left",
-                    assigneeId === officer.id
-                      ? "border-amber-500 bg-amber-500/15"
-                      : "border-border bg-background hover:bg-secondary/60"
-                  )}
-                >
-                  <span className="block text-sm font-medium">{officer.name}</span>
-                  <span className="text-xs text-muted-foreground">{t(`officerRoles.${officer.roleKey}`)}</span>
-                </button>
+            <select
+              id="assignee"
+              value={assigneeId}
+              onChange={(event) => setAssigneeId(event.target.value)}
+              className="h-12 w-full rounded-lg border border-border bg-background px-3"
+            >
+              <option value="">{t("dashboard.noOwner")}</option>
+              {legacyOwner && <option value={legacyOwner.id}>{legacyOwner.name}</option>}
+              {people.map((person) => (
+                <option key={person.id} value={person.id}>
+                  {person.fullName} · {t(`roleNames.${person.role}`)}
+                  {person.email ? "" : ` · ${t("dashboard.noEmailShort")}`}
+                </option>
               ))}
-            </div>
+            </select>
+            {people.length === 0 && (
+              <p className="text-xs text-muted-foreground">
+                {t("dashboard.noAssignable")}{" "}
+                <Link href="/settings" className="font-semibold underline underline-offset-2">
+                  {t("home.settings")}
+                </Link>
+              </p>
+            )}
+            <p className="text-xs text-muted-foreground">{t("dashboard.assigneeMailHint")}</p>
           </div>
           <div className="space-y-2">
             <Label htmlFor="due">{t("dashboard.dueDate")}</Label>

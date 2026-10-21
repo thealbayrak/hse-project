@@ -15,6 +15,9 @@ export interface RoutedIncident {
   createdAt: string;
   reporterName: string | null;
   anonymous: boolean;
+  /** What the reporter answered; severity itself is rated later by a manager. */
+  hurt?: boolean | null;
+  dangerPresent?: boolean | null;
 }
 
 export type RoutingReason = "foreman" | "site_officer" | "escalation";
@@ -29,6 +32,7 @@ function escapeHtml(value: string) {
 }
 
 const SEVERITY_COLOR: Record<Severity, string> = {
+  unrated: "#7c3aed",
   low: "#059669",
   medium: "#d97706",
   high: "#ea580c",
@@ -53,6 +57,10 @@ export function buildRoutingEmail(input: {
   const category = categoryLabel(incident.category, language);
   const reasonText = t(`routing.${reason}`);
   const subject = `[${severity}] ${type} · ${incident.siteName} · ${incident.reference}`;
+  const facts = [
+    incident.hurt === true ? t("routing.hurtYes") : null,
+    incident.dangerPresent === true ? t("routing.dangerYes") : null,
+  ].filter((line): line is string => Boolean(line));
 
   const html = `<!DOCTYPE html>
 <html lang="${language}">
@@ -69,6 +77,7 @@ export function buildRoutingEmail(input: {
         <p style="margin:0;"><strong>${escapeHtml(incident.reference)}</strong> · ${escapeHtml(category)}${incident.anonymous ? ` · ${escapeHtml(t("report.anonymousPerson"))}` : incident.reporterName ? ` · ${escapeHtml(incident.reporterName)}` : ""}</p>
         ${incident.summarySv ? `<p style="margin:10px 0 0;padding:10px 12px;background:#f8fafc;border-left:3px solid ${SEVERITY_COLOR[incident.severity]};"><em>${escapeHtml(incident.summarySv)}</em></p>` : ""}
         <p style="margin:10px 0 0;white-space:pre-line;">${escapeHtml(incident.description)}</p>
+        ${facts.length ? `<p style="margin:12px 0 0;padding:10px 12px;background:#fef2f2;color:#991b1b;border:1px solid #fecaca;border-radius:8px;font-weight:700;">${facts.map(escapeHtml).join(" · ")}</p>` : ""}
         ${incident.severity === "critical" ? `<p style="margin:12px 0 0;padding:10px 12px;background:#fef2f2;color:#991b1b;border:1px solid #fecaca;border-radius:8px;">${escapeHtml(t("statutory.aml"))}</p>` : ""}
       </td></tr>
       <tr><td style="padding:0 24px 20px;text-align:center;">
@@ -84,6 +93,7 @@ export function buildRoutingEmail(input: {
     `${t("routing.hello", { name: recipientName })} ${reasonText}`,
     `${incident.reference} · ${category}`,
     `${incident.siteName} · ${incident.locationName}`,
+    facts.join(" · "),
     incident.summarySv ?? "",
     incident.description,
     "",

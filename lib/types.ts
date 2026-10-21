@@ -6,7 +6,9 @@ export type IncidentType =
   | "positive-observation"
   | "environmental"
   | "other";
-export type Severity = "low" | "medium" | "high" | "critical";
+/** "unrated" = waiting for a manager to rate it ("Pending review"). Only managers set the other levels. */
+export type Severity = "unrated" | "low" | "medium" | "high" | "critical";
+export type RatedSeverity = Exclude<Severity, "unrated">;
 export type IncidentStatus = "open" | "in-progress" | "resolved";
 /** Built-in risk types; companies add their own (stored as plain text). */
 export type BuiltInRiskCategory =
@@ -85,6 +87,11 @@ export interface Incident {
   locationNote?: string | null;
   /** Free-text type when the reporter chose "other". */
   typeNote?: string | null;
+  /** The reporter's own answers, kept as facts; the severity itself is rated by a manager. */
+  hurt?: boolean | null;
+  dangerPresent?: boolean | null;
+  /** Subcontractor / company the reporter works for, when given. */
+  subcontractor?: string | null;
   /** All areas the reporter marked; `locationId` is the first of them (may be empty). */
   locationIds?: string[];
   /** First risk type, or "unclassified" until the safety team assigns one. */
@@ -138,6 +145,9 @@ export interface CreateIncidentInput {
   organizationId?: string | null;
   locationNote?: string | null;
   typeNote?: string | null;
+  hurt?: boolean | null;
+  dangerPresent?: boolean | null;
+  subcontractor?: string | null;
   /** First area, or "" when the reporter did not pick one. */
   locationId: string;
   locationIds?: string[];
@@ -323,9 +333,9 @@ export interface MeetingInviteInput {
 }
 
 /** Roles decide who is told about what and which screens a person sees. */
-export type Role = "worker" | "foreman" | "safety_officer" | "hse_manager" | "admin" | "super_admin";
+export type Role = "worker" | "foreman" | "action_owner" | "safety_officer" | "hse_manager" | "admin" | "super_admin";
 
-export const ROLES: Role[] = ["worker", "foreman", "safety_officer", "hse_manager", "admin", "super_admin"];
+export const ROLES: Role[] = ["worker", "foreman", "action_owner", "safety_officer", "hse_manager", "admin", "super_admin"];
 
 export interface Profile {
   id: string;
@@ -537,6 +547,37 @@ export interface CreateStaffResult {
   profile: Profile;
   /** created: can sign in now; confirm: must confirm the e-mail first; existing: account already existed; none: no login. */
   login: "created" | "confirm" | "existing" | "none";
+}
+
+// ---------------------------------------------------------------------------
+// Subcontractors and join requests
+// ---------------------------------------------------------------------------
+
+export interface Subcontractor {
+  id: string;
+  organizationId: string;
+  name: string;
+  active: boolean;
+}
+
+export type MembershipStatus = "pending" | "approved" | "rejected";
+
+/** A reporter who left an e-mail to become a permanent user; waits for a manager. */
+export interface MembershipRequest {
+  id: string;
+  organizationId: string;
+  siteId: string | null;
+  fullName: string | null;
+  email: string;
+  status: MembershipStatus;
+  createdAt: string;
+}
+
+export interface MembershipRequestInput {
+  organizationId: string;
+  email: string;
+  name?: string | null;
+  siteId?: string | null;
 }
 
 export interface NearbyPlace {

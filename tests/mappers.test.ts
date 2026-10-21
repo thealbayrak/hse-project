@@ -49,6 +49,9 @@ const baseIncident: IncidentQueryRow = {
   audit_id: null,
   location_note: null,
   type_note: null,
+  hurt: null,
+  danger_present: null,
+  subcontractor: null,
   created_at: "2026-09-08T07:40:00.000Z",
   updated_at: null,
   sites: { id: "site-1", name: "Torslanda", city: "Gothenburg" },
@@ -99,7 +102,7 @@ describe("enum mappers", () => {
     expect(mapIncidentType("anything-else")).toBe("other");
     expect(mapIncidentType("olycka")).toBe("accident");
     expect(mapSeverity("CRITICAL")).toBe("critical");
-    expect(mapSeverity("unknown")).toBe("medium");
+    expect(mapSeverity("unknown")).toBe("unrated");
     expect(mapStatus("in_progress")).toBe("in-progress");
     expect(mapStatus("weird")).toBe("open");
     expect(mapCategory("falling_objects")).toBe("falling-objects");

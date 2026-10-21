@@ -138,6 +138,8 @@ async function routeByRole(resend: Resend, from: string, incidentId: string, lan
     createdAt: row.created_at,
     reporterName: row.reporter_name,
     anonymous: row.is_anonymous,
+    hurt: row.hurt,
+    dangerPresent: row.danger_present,
   };
 
   let sentCount = 0;

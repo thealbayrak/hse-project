@@ -139,7 +139,7 @@ export function ReportsView() {
         <section className="rounded-2xl border border-border bg-card p-4">
           <h2 className="text-sm font-semibold">{t("reports.bySeverity")}</h2>
           <ul className="mt-3 space-y-2">
-            {(["critical", "high", "medium", "low"] as Severity[]).map((severity) => (
+            {(["critical", "high", "medium", "low", "unrated"] as Severity[]).map((severity) => (
               <li key={severity} className="flex items-center gap-3 text-sm">
                 <span className={cn("h-3 w-3 shrink-0 rounded-full", severityBarClass[severity])} />
                 <span className="flex-1">{severityLabel(severity, locale)}</span>

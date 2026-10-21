@@ -34,12 +34,11 @@ import { DEFAULT_REPORTER_NAME, INCIDENT_TYPES, RISK_CATEGORIES } from "@/lib/co
 import { useLanguage } from "@/lib/i18n/LanguageContext";
 import { isImageFile } from "@/lib/media";
 import { readLastSite, rememberLastSite, serverLastSite, subscribeLastSite } from "@/lib/report/last-site";
-import { deriveSeverity } from "@/lib/report/severity";
 import { useIncidentStore } from "@/lib/store/incident-store";
 import { categoriesLabel, categoryLabel, severityLabel, typeLabel } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { panelClass, severityClass } from "@/lib/tones";
-import { isPositiveType, type IncidentType, type ReportDraft, type SitePerson } from "@/lib/types";
+import { isPositiveType, type IncidentType, type ReportDraft, type Severity, type SitePerson } from "@/lib/types";
 
 const TYPE_HINT: Record<IncidentType, string> = {
   "near-miss": "incident.nearMissHint",
@@ -63,6 +62,10 @@ interface Draft extends Omit<ReportDraft, "severity"> {
   aiConfidence: number | null;
   position: LatLng | null;
   reporter: SitePerson | null;
+  /** Company the worker works for (free text or from the company's list). */
+  subcontractor: string;
+  /** E-mail left to become a permanent user; goes to the approval queue, never onto the report. */
+  joinEmail: string;
 }
 
 const EMPTY_DRAFT: Draft = {
@@ -86,6 +89,8 @@ const EMPTY_DRAFT: Draft = {
   aiConfidence: null,
   position: null,
   reporter: null,
+  subcontractor: "",
+  joinEmail: "",
 };
 
 type AnalysisState =
@@ -97,12 +102,14 @@ type AnalysisState =
 export function ReportWizard({ aiEnabled = false }: { aiEnabled?: boolean }) {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const projectId = searchParams.get("project") ?? searchParams.get("site");
+  const projectId = searchParams.get("project_id") ?? searchParams.get("project") ?? searchParams.get("site");
   const orgParam = searchParams.get("org");
   const { locale, t } = useLanguage();
-  const { sites, createIncident, loading, error, listSitePeople, listOrgPeople, listRiskTypes, listOrganizations } = useIncidentStore();
+  const { sites, createIncident, loading, error, listSitePeople, listOrgPeople, listRiskTypes, listOrganizations, listSubcontractors, requestMembership } =
+    useIncidentStore();
   const [showMap, setShowMap] = useState(false);
   const [companyRisks, setCompanyRisks] = useState<{ orgId: string; labels: string[] } | null>(null);
+  const [companySubs, setCompanySubs] = useState<{ orgId: string; names: string[] } | null>(null);
   const [companyName, setCompanyName] = useState<{ orgId: string; name: string } | null>(null);
   const [step, setStep] = useState(0);
   const [draft, setDraft] = useState<Draft>(EMPTY_DRAFT);
@@ -164,6 +171,21 @@ export function ReportWizard({ aiEnabled = false }: { aiEnabled?: boolean }) {
   }, [organizationId, listRiskTypes]);
   const ownRisks = companyRisks?.orgId === organizationId ? companyRisks.labels : [];
 
+  // The company's subcontractors, for "which company do you work for".
+  useEffect(() => {
+    if (!organizationId) return;
+    let cancelled = false;
+    listSubcontractors(organizationId)
+      .then((rows) => {
+        if (!cancelled) setCompanySubs({ orgId: organizationId, names: rows.map((row) => row.name) });
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, [organizationId, listSubcontractors]);
+  const subcontractorNames = companySubs?.orgId === organizationId ? companySubs.names : [];
+
   // A company without places yet still shows its name on the QR form.
   useEffect(() => {
     if (!lockedOrgId || companySites.length) return;
@@ -182,10 +204,13 @@ export function ReportWizard({ aiEnabled = false }: { aiEnabled?: boolean }) {
   const effectiveType = draft.type ?? (draft.typeNote ? "other" : null);
   const positive = effectiveType ? isPositiveType(effectiveType) : false;
   // Only the description is required. Unanswered questions get a cautious default the team can correct.
-  const severity =
-    deriveSeverity(effectiveType ?? "other", draft) ?? (positive ? "low" : effectiveType === "accident" ? "high" : "medium");
+  const severity: Severity = positive ? "low" : "unrated";
+  const needsRisk = !positive && draft.danger === true;
+  const joinEmail = draft.joinEmail.trim();
+  const joinEmailValid = !joinEmail || /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(joinEmail);
   const step1Ready = true;
-  const step2Ready = draft.description.trim().length >= 8;
+  // Required: what happened; if the danger is still there, also what kind of risk; a typed e-mail must be valid.
+  const step2Ready = draft.description.trim().length >= 8 && (!needsRisk || draft.categories.length > 0) && joinEmailValid;
   const builtInRisks = RISK_CATEGORIES.map((item) => item.id as string);
   const riskOptions = [
     ...RISK_CATEGORIES.map((item) => ({ value: item.id as string, label: categoryLabel(item.id, locale) })),
@@ -342,6 +367,9 @@ export function ReportWizard({ aiEnabled = false }: { aiEnabled?: boolean }) {
         category: draft.categories[0] ?? "unclassified",
         categories: draft.categories,
         severity,
+        hurt: positive ? null : draft.hurt,
+        dangerPresent: positive ? null : draft.danger,
+        subcontractor: draft.subcontractor.trim() || null,
         description: draft.description.trim(),
         mediaUrls: draft.mediaUrls,
         photoFiles: draft.photoFiles,
@@ -357,6 +385,11 @@ export function ReportWizard({ aiEnabled = false }: { aiEnabled?: boolean }) {
         aiConfidence: draft.aiConfidence,
       });
       if (siteId) rememberLastSite({ siteId, locationId: locationIds[0] ?? "" });
+      if (joinEmail && organizationId) {
+        void requestMembership({ organizationId, siteId: siteId || null, email: joinEmail, name: reporter?.fullName ?? null })
+          .then((result) => toast.success(result === "already_member" ? t("join.alreadyMember") : t("join.requested")))
+          .catch(() => toast.error(t("join.failed")));
+      }
       setSubmitted({
         reference: created.reference,
         pending: Boolean(created.pending),
@@ -403,7 +436,7 @@ export function ReportWizard({ aiEnabled = false }: { aiEnabled?: boolean }) {
           {!submitted.pending && (
             <p className="mt-4 font-mono text-lg text-amber-700 dark:text-amber-300">{submitted.reference}</p>
           )}
-          {severity === "critical" && (
+          {draft.hurt === true && (
             <p className={cn("mt-4 rounded-xl border px-4 py-3 text-sm", panelClass.danger)}>
               {t("statutory.criticalNow")}
             </p>
@@ -567,6 +600,24 @@ export function ReportWizard({ aiEnabled = false }: { aiEnabled?: boolean }) {
             />
           </fieldset>
 
+          {organizationId && (
+            <fieldset>
+              <legend className="mb-1 text-lg font-semibold">{t("report.subcontractorQuestion")}</legend>
+              <p className="mb-3 text-sm text-muted-foreground">{t("picker.optional")}</p>
+              <ChoicePicker
+                placeholder={t("picker.subcontractorPlaceholder")}
+                options={subcontractorNames.map((name) => ({ value: name, label: name }))}
+                selected={subcontractorNames.includes(draft.subcontractor) ? [draft.subcontractor] : []}
+                custom={draft.subcontractor && !subcontractorNames.includes(draft.subcontractor) ? [draft.subcontractor] : []}
+                onChange={(selected, custom) => patch({ subcontractor: selected[0] ?? custom[0] ?? "" })}
+                addLabel={t("picker.add")}
+                addPlaceholder={t("picker.subcontractorAdd")}
+                doneLabel={t("picker.done")}
+                searchPlaceholder={t("picker.search")}
+              />
+            </fieldset>
+          )}
+
           <fieldset>
             {showMap || draft.position ? (
               <>
@@ -692,12 +743,10 @@ export function ReportWizard({ aiEnabled = false }: { aiEnabled?: boolean }) {
                 no={t("buttons.no")}
               />
             </div>
-            {severity && (
-              <p className={cn("mt-3 inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-sm", severityClass[severity])}>
-                <ShieldCheckIcon className="size-4" />
-                {t("report.severityDerived", { level: severityLabel(severity, locale) })}
-              </p>
-            )}
+            <p className={cn("mt-3 inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-sm", severityClass.unrated)}>
+              <ShieldCheckIcon className="size-4" />
+              {t("report.willBeRated")}
+            </p>
           </fieldset>
           )}
 
@@ -707,7 +756,9 @@ export function ReportWizard({ aiEnabled = false }: { aiEnabled?: boolean }) {
 
           <fieldset>
             <legend className="mb-1 text-lg font-semibold">{t("incident.whatRisk")}</legend>
-            <p className="mb-3 text-sm text-muted-foreground">{t("incident.whatRiskHint")}</p>
+            <p className={cn("mb-3 text-sm", needsRisk ? "font-medium text-red-700 dark:text-red-300" : "text-muted-foreground")}>
+              {needsRisk ? t("incident.whatRiskRequired") : t("incident.whatRiskHint")}
+            </p>
             <ChoicePicker
               multiple
               placeholder={t("picker.riskPlaceholder")}
@@ -845,6 +896,23 @@ export function ReportWizard({ aiEnabled = false }: { aiEnabled?: boolean }) {
               )}
             </fieldset>
           )}
+          {organizationId && (
+            <div className={cn("rounded-2xl border p-4", panelClass.info)}>
+              <h2 className="text-lg font-semibold">{t("join.title")}</h2>
+              <p className="mt-1 text-sm opacity-85">{t("join.hint")}</p>
+              <input
+                type="email"
+                inputMode="email"
+                autoComplete="email"
+                value={draft.joinEmail}
+                onChange={(event) => patch({ joinEmail: event.target.value })}
+                placeholder={t("join.placeholder")}
+                aria-invalid={!joinEmailValid}
+                className="mt-3 h-12 w-full rounded-xl border border-border bg-background px-4 text-base text-foreground"
+              />
+              {!joinEmailValid && <p className="mt-2 text-sm font-medium text-red-700 dark:text-red-300">{t("join.invalid")}</p>}
+            </div>
+          )}
         </section>
       )}
 
@@ -855,13 +923,12 @@ export function ReportWizard({ aiEnabled = false }: { aiEnabled?: boolean }) {
           <ReviewRow label={t("report.company")} value={organizationLabel ?? t("report.notGiven")} />
           <ReviewRow label={t("report.place")} value={placeSummary || t("report.notGiven")} />
           <ReviewRow label={t("report.risk")} value={categoriesLabel(draft.categories, locale)} />
+          {draft.subcontractor.trim() && <ReviewRow label={t("report.subcontractor")} value={draft.subcontractor.trim()} />}
           <div className="flex items-center justify-between rounded-xl border border-border bg-card px-4 py-3">
             <span className="text-sm text-muted-foreground">{t("report.severity")}</span>
-            {severity && (
-              <span className={cn("rounded-full border px-3 py-1 text-sm font-medium", severityClass[severity])}>
-                {severityLabel(severity, locale)}
-              </span>
-            )}
+            <span className={cn("rounded-full border px-3 py-1 text-sm font-medium", severityClass[severity])}>
+              {severityLabel(severity, locale)}
+            </span>
           </div>
           <ReviewRow
             label={t("report.reporter")}
@@ -893,7 +960,7 @@ export function ReportWizard({ aiEnabled = false }: { aiEnabled?: boolean }) {
               ))}
             </div>
           )}
-          {severity === "critical" && (
+          {draft.hurt === true && (
             <p className={cn("rounded-xl border px-4 py-3 text-sm", panelClass.danger)}>
               {t("statutory.criticalCheck")}
             </p>

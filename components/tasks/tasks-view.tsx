@@ -3,12 +3,13 @@
 import { useEffect, useState } from "react";
 import { CheckCircle2Icon, Loader2Icon, PlayIcon, PlusIcon, RotateCcwIcon, XCircleIcon } from "lucide-react";
 import { toast } from "sonner";
+import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { can } from "@/lib/auth/permissions";
-import { formatDate } from "@/lib/format";
+import { formatDate, placeLabel, typeLabel } from "@/lib/format";
 import { useLanguage } from "@/lib/i18n/LanguageContext";
 import { useIncidentStore } from "@/lib/store/incident-store";
 import { TASK_PRIORITIES, TASK_PRIORITY_KEY, TASK_STATUS_KEY } from "@/lib/tasks/labels";
@@ -25,6 +26,75 @@ const PRIORITY_CLASS: Record<TaskPriority, string> = {
 
 function stockholmToday() {
   return new Intl.DateTimeFormat("sv-SE", { timeZone: "Europe/Stockholm" }).format(new Date());
+}
+
+/** Reports whose action is assigned to the signed-in person, with quick start / resolve. */
+function AssignedReports() {
+  const { locale, t } = useLanguage();
+  const { incidents, profile, role, updateStatus } = useIncidentStore();
+  const [busy, setBusy] = useState<string | null>(null);
+  const mine = incidents
+    .filter((incident) => profile && incident.capa?.assigneeId === profile.id && incident.status !== "resolved")
+    .sort((a, b) => (a.capa?.dueDate || "9999").localeCompare(b.capa?.dueDate || "9999"));
+  if (!mine.length) return null;
+  const today = stockholmToday();
+
+  async function move(id: string, status: "in-progress" | "resolved") {
+    setBusy(id);
+    try {
+      await updateStatus(id, status);
+      toast.success(t("tasks.reportUpdated"));
+    } catch (caught) {
+      toast.error((caught as { message?: string })?.message ?? t("toast.capaFailed"));
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  return (
+    <section className="space-y-2 rounded-2xl border border-border bg-card p-4">
+      <h2 className="text-lg font-semibold">{t("tasks.assignedReports", { n: mine.length })}</h2>
+      <p className="text-sm text-muted-foreground">{t("tasks.assignedReportsHint")}</p>
+      <ul className="divide-y divide-border rounded-xl border border-border">
+        {mine.map((incident) => {
+          const overdue = Boolean(incident.capa?.dueDate) && incident.capa!.dueDate < today;
+          return (
+            <li key={incident.id} className="flex flex-wrap items-center justify-between gap-2 px-3 py-2.5 text-sm">
+              <span className="min-w-0">
+                <span className="block font-medium">
+                  <span className="mr-2 font-mono text-xs text-amber-700 dark:text-amber-300">{incident.reference}</span>
+                  {typeLabel(incident.type, locale, incident.typeNote)}
+                </span>
+                <span className="block truncate text-xs text-muted-foreground">
+                  {placeLabel(incident)}
+                  {incident.capa?.dueDate ? ` · ${t("tasks.due", { date: incident.capa.dueDate })}` : ""}
+                </span>
+                {incident.publicNote && <span className="block text-xs">{incident.publicNote}</span>}
+              </span>
+              <span className="flex flex-wrap items-center gap-2">
+                {overdue && <span className={cn("rounded-full border px-2 py-0.5 text-[11px] font-medium", panelClass.danger)}>{t("tasks.overdue")}</span>}
+                {incident.status === "open" && (
+                  <Button type="button" size="sm" variant="outline" className="h-10 gap-1" disabled={busy === incident.id} onClick={() => void move(incident.id, "in-progress")}>
+                    <PlayIcon className="size-4" />
+                    {t("tasks.start")}
+                  </Button>
+                )}
+                <Button type="button" size="sm" className="h-10 gap-1" disabled={busy === incident.id} onClick={() => void move(incident.id, "resolved")}>
+                  <CheckCircle2Icon className="size-4" />
+                  {t("tasks.markDone")}
+                </Button>
+                {can(role, "dashboard.view") && (
+                  <Link href={`/board?incidentId=${incident.id}`} className="inline-flex h-10 items-center rounded-md border border-border px-3 text-sm font-medium hover:bg-secondary/60">
+                    {t("tasks.openReport")}
+                  </Link>
+                )}
+              </span>
+            </li>
+          );
+        })}
+      </ul>
+    </section>
+  );
 }
 
 export function TasksView() {
@@ -197,6 +267,8 @@ export function TasksView() {
           </div>
         </div>
       )}
+
+      <AssignedReports />
 
       <div role="group" className="inline-flex h-12 items-center rounded-lg border border-border bg-secondary/40 p-1">
         {(["mine", "all"] as const).map((mode) => (

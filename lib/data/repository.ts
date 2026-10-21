@@ -1,5 +1,8 @@
 import type {
   Audit,
+  MembershipRequest,
+  MembershipRequestInput,
+  Subcontractor,
   CreateOrganizationInput,
   CreateSiteInput,
   CreateStaffInput,
@@ -102,6 +105,13 @@ export interface IncidentRepository {
   listRiskTypes(organizationId?: string | null): Promise<RiskType[]>;
   createRiskType(organizationId: string, label: string): Promise<RiskType>;
   removeRiskType(id: string): Promise<void>;
+  listSubcontractors(organizationId?: string | null): Promise<Subcontractor[]>;
+  createSubcontractor(organizationId: string, name: string): Promise<Subcontractor>;
+  removeSubcontractor(id: string): Promise<void>;
+  /** Public: a reporter leaves an e-mail to become a permanent user; a manager approves it later. */
+  requestMembership(input: MembershipRequestInput): Promise<"requested" | "already_member">;
+  listMembershipRequests(): Promise<MembershipRequest[]>;
+  decideMembership(id: string, status: "approved" | "rejected", decidedBy: string | null): Promise<void>;
   /** People of a company for the reporter picker (no contact details). */
   listOrgPeople(organizationId: string): Promise<SitePerson[]>;
   /** Adds a person; with e-mail and password they also get a login. */

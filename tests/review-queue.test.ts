@@ -1,0 +1,203 @@
+import { describe, expect, it } from "vitest";
+import { buildAssignmentEmail } from "@/lib/alerts/assignment-email";
+import { assignableRoles } from "@/lib/admin/staff-rules";
+import { can } from "@/lib/auth/permissions";
+import { createMockRepository } from "@/lib/data/mock-repository";
+import { averageResolutionDays, incidentsBySubcontractor, isPendingReview, severityDistribution } from "@/lib/dashboard/kpis";
+import { projectIdFromSearch, companyReportUrl, placeReportUrl } from "@/lib/qr/urls";
+import { suggestSeverity } from "@/lib/report/severity";
+import { mapRole, mapSeverity } from "@/lib/supabase/mappers";
+import type { Incident } from "@/lib/types";
+
+function incident(overrides: Partial<Incident>): Incident {
+  return {
+    id: overrides.id ?? Math.random().toString(36).slice(2),
+    reference: "SS-2026-0001",
+    type: "hazard",
+    siteId: "s",
+    locationId: "",
+    category: "unclassified",
+    severity: "unrated",
+    description: "Oil on the floor",
+    mediaUrls: [],
+    anonymous: false,
+    reporterName: "Ali",
+    status: "open",
+    createdAt: "2026-10-10T10:00:00.000Z",
+    capa: null,
+    ...overrides,
+  };
+}
+
+describe("severity is rated by a manager", () => {
+  it("maps unknown values to pending review, not to medium", () => {
+    expect(mapSeverity("unrated")).toBe("unrated");
+    expect(mapSeverity("whatever")).toBe("unrated");
+    expect(mapSeverity("HIGH")).toBe("high");
+  });
+
+  it("only suggests a level from the reporter's answers", () => {
+    expect(suggestSeverity("accident", { hurt: true, danger: true })).toBe("critical");
+    expect(suggestSeverity("hazard", { hurt: false, danger: true })).toBe("high");
+    expect(suggestSeverity("hazard", { hurt: null, danger: null })).toBeNull();
+    expect(suggestSeverity("hazard", { hurt: false, danger: null })).toBe("low");
+    expect(suggestSeverity("good-observation", { hurt: true, danger: true })).toBeNull();
+  });
+
+  it("counts reports that wait for a rating, praise excluded", () => {
+    expect(isPendingReview(incident({}))).toBe(true);
+    expect(isPendingReview(incident({ severity: "high" }))).toBe(false);
+    expect(isPendingReview(incident({ type: "positive-observation" }))).toBe(false);
+    expect(isPendingReview(incident({ status: "resolved" }))).toBe(false);
+  });
+
+  it("keeps what the reporter said and starts unrated (mock repository)", async () => {
+    const repo = createMockRepository();
+    const created = await repo.createIncident({
+      type: "hazard",
+      siteId: "",
+      organizationId: "org-volvo",
+      locationId: "",
+      category: "unclassified",
+      severity: "unrated",
+      hurt: true,
+      dangerPresent: true,
+      subcontractor: "Acme Installations AB",
+      description: "Broken guard rail on the stairs.",
+      mediaUrls: [],
+      anonymous: true,
+      reporterName: null,
+    });
+    expect(created).toMatchObject({ severity: "unrated", hurt: true, dangerPresent: true, subcontractor: "Acme Installations AB" });
+    const rated = await repo.updateCapa(created.id, {
+      assigneeId: "p-erik",
+      assigneeName: "Erik Lindqvist",
+      dueDate: "2026-11-01",
+      status: "open",
+      notes: "",
+      severity: "high",
+    });
+    expect(rated.severity).toBe("high");
+  });
+});
+
+describe("dashboard figures", () => {
+  it("averages the days to resolve, ignoring open reports", () => {
+    const resolved = (days: number) =>
+      incident({
+        status: "resolved",
+        createdAt: "2026-10-01T00:00:00.000Z",
+        capa: { assigneeId: "a", assigneeName: "A", dueDate: "", status: "resolved", notes: "", updatedAt: new Date(Date.UTC(2026, 9, 1 + days)).toISOString() },
+      });
+    expect(averageResolutionDays([resolved(2), resolved(5), incident({})])).toBe(3.5);
+    expect(averageResolutionDays([incident({})])).toBeNull();
+  });
+
+  it("groups by subcontractor, largest first, with the tail folded", () => {
+    const rows = [
+      ...Array.from({ length: 3 }, () => incident({ subcontractor: "B" })),
+      ...Array.from({ length: 2 }, () => incident({ subcontractor: "A" })),
+      incident({ subcontractor: "C" }),
+      incident({ subcontractor: "D" }),
+      incident({}),
+    ];
+    expect(incidentsBySubcontractor(rows, 10).map((item) => [item.key, item.count])).toEqual([
+      ["B", 3],
+      ["A", 2],
+      ["", 1],
+      ["C", 1],
+      ["D", 1],
+    ]);
+    const folded = incidentsBySubcontractor(rows, 3);
+    expect(folded).toHaveLength(3);
+    expect(folded[2]).toMatchObject({ other: true, count: 3 });
+  });
+
+  it("splits severity into shares and drops empty levels", () => {
+    const slices = severityDistribution([incident({}), incident({ severity: "critical" }), incident({ severity: "critical" }), incident({ severity: "low" })]);
+    expect(slices.map((slice) => [slice.severity, slice.count])).toEqual([
+      ["critical", 2],
+      ["low", 1],
+      ["unrated", 1],
+    ]);
+    expect(slices[0].share).toBe(0.5);
+    expect(severityDistribution([])).toEqual([]);
+  });
+});
+
+describe("action owner role and join requests", () => {
+  it("lets an action owner see only their tasks and managers hand out the role", () => {
+    expect(mapRole("action_owner")).toBe("action_owner");
+    expect(can("action_owner", "tasks.view")).toBe(true);
+    expect(can("action_owner", "dashboard.view")).toBe(false);
+    expect(assignableRoles("hse_manager")).toContain("action_owner");
+  });
+
+  it("queues a join request once, answers already_member, and turns approval into a profile", async () => {
+    const repo = createMockRepository();
+    expect(await repo.requestMembership({ organizationId: "org-nordic", email: " New.Worker@Example.se ", name: "New Worker" })).toBe("requested");
+    expect(await repo.requestMembership({ organizationId: "org-nordic", email: "new.worker@example.se" })).toBe("requested");
+    const queue = await repo.listMembershipRequests();
+    expect(queue).toHaveLength(1);
+    expect(queue[0]).toMatchObject({ email: "new.worker@example.se", fullName: "New Worker", status: "pending" });
+
+    const created = await repo.createStaff({ fullName: "New Worker", role: "worker", organizationId: "org-nordic", email: queue[0].email });
+    await repo.decideMembership(queue[0].id, "approved", null);
+    expect(created.profile.role).toBe("worker");
+    expect(await repo.listMembershipRequests()).toHaveLength(0);
+    expect(await repo.requestMembership({ organizationId: "org-nordic", email: "new.worker@example.se" })).toBe("already_member");
+    await expect(repo.requestMembership({ organizationId: "org-nordic", email: "not-an-email" })).rejects.toThrow();
+  });
+
+  it("manages subcontractors per company", async () => {
+    const repo = createMockRepository();
+    const created = await repo.createSubcontractor("org-volvo", "Safe Scaffolds AB");
+    await expect(repo.createSubcontractor("org-volvo", "safe scaffolds ab")).rejects.toThrow();
+    expect((await repo.listSubcontractors("org-volvo")).map((item) => item.name)).toContain("Safe Scaffolds AB");
+    expect((await repo.listSubcontractors("org-nordic")).map((item) => item.name)).not.toContain("Safe Scaffolds AB");
+    await repo.removeSubcontractor(created.id);
+    expect((await repo.listSubcontractors("org-volvo")).map((item) => item.name)).not.toContain("Safe Scaffolds AB");
+  });
+});
+
+describe("assignment e-mail", () => {
+  const base = {
+    incident: {
+      reference: "SS-2026-0042",
+      type: "hazard" as const,
+      severity: "high" as const,
+      description: "Loose <b>scaffold</b> board",
+      summarySv: "Lös planka på ställning.",
+      siteName: "Plant A",
+      locationName: "Line 2",
+    },
+    recipientName: "Johan",
+    assignedBy: "Erik",
+    dueDate: "2026-11-03",
+    note: "Fix before Friday",
+    dashboardUrl: "https://app.example/dashboard?incidentId=1",
+  };
+
+  it("names the report, the due date and the sender in the recipient's language, and escapes HTML", () => {
+    const en = buildAssignmentEmail({ ...base, language: "en" });
+    expect(en.subject).toBe("Action assigned to you · SS-2026-0042");
+    expect(en.text).toContain("Erik assigned this report to you");
+    expect(en.text).toContain("Fix before Friday");
+    expect(en.html).toContain("Loose &lt;b&gt;scaffold&lt;/b&gt; board");
+    expect(en.html).not.toContain("<b>scaffold</b>");
+    const sv = buildAssignmentEmail({ ...base, language: "sv" });
+    expect(sv.subject).toContain("Åtgärd tilldelad dig");
+    expect(sv.text).toContain("november");
+  });
+});
+
+describe("QR links", () => {
+  it("builds company and place links and reads every project parameter name", () => {
+    expect(companyReportUrl("abc", "https://x.se")).toBe("https://x.se/report?org=abc");
+    expect(placeReportUrl("a b", "https://x.se")).toBe("https://x.se/report?project_id=a%20b");
+    expect(projectIdFromSearch(new URLSearchParams("project_id=1&project=2"))).toBe("1");
+    expect(projectIdFromSearch(new URLSearchParams("project=2"))).toBe("2");
+    expect(projectIdFromSearch(new URLSearchParams("site=3"))).toBe("3");
+    expect(projectIdFromSearch(new URLSearchParams(""))).toBeNull();
+  });
+});

@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { DownloadIcon, Loader2Icon, SearchIcon, Trash2Icon, UploadIcon, UsersIcon } from "lucide-react";
+import { CheckIcon, DownloadIcon, Loader2Icon, SearchIcon, Trash2Icon, UploadIcon, UserCheckIcon, UsersIcon, XIcon } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -12,11 +12,13 @@ import { useIncidentStore } from "@/lib/store/incident-store";
 import { panelClass } from "@/lib/tones";
 import { cn } from "@/lib/utils";
 import { assignableRoles } from "@/lib/admin/staff-rules";
-import type { Profile, Role } from "@/lib/types";
+import type { MembershipRequest, Profile, Role } from "@/lib/types";
 
 export function PeopleView() {
   const { t } = useLanguage();
-  const { role, sites, listProfiles, importProfiles, updateProfile, removeProfile } = useIncidentStore();
+  const { role, sites, listProfiles, importProfiles, updateProfile, removeProfile, listMembershipRequests, decideMembership, createStaff } = useIncidentStore();
+  const [requests, setRequests] = useState<MembershipRequest[]>([]);
+  const [deciding, setDeciding] = useState<string | null>(null);
   const [people, setPeople] = useState<Profile[] | null>(null);
   const [query, setQuery] = useState("");
   const [importing, setImporting] = useState(false);
@@ -26,6 +28,11 @@ export function PeopleView() {
   useEffect(() => {
     if (!allowed) return;
     let cancelled = false;
+    listMembershipRequests()
+      .then((rows) => {
+        if (!cancelled) setRequests(rows);
+      })
+      .catch(() => undefined);
     listProfiles()
       .then((rows) => {
         if (!cancelled) setPeople(rows);
@@ -39,7 +46,43 @@ export function PeopleView() {
     return () => {
       cancelled = true;
     };
-  }, [allowed, listProfiles]);
+  }, [allowed, listProfiles, listMembershipRequests]);
+
+  // Approving turns the request into a worker profile (reporter list, tasks); rejecting just closes it.
+  async function approve(request: MembershipRequest) {
+    setDeciding(request.id);
+    try {
+      const name = request.fullName || request.email.split("@")[0];
+      const result = await createStaff({
+        fullName: name,
+        role: "worker",
+        organizationId: request.organizationId,
+        siteId: request.siteId,
+        email: request.email,
+      });
+      await decideMembership(request.id, "approved");
+      setRequests((current) => current.filter((item) => item.id !== request.id));
+      setPeople((current) => (current ? [...current, result.profile] : current));
+      toast.success(t("people.requestApproved", { name }));
+    } catch (caught) {
+      toast.error((caught as { message?: string })?.message ?? t("toast.capaFailed"));
+    } finally {
+      setDeciding(null);
+    }
+  }
+
+  async function reject(request: MembershipRequest) {
+    setDeciding(request.id);
+    try {
+      await decideMembership(request.id, "rejected");
+      setRequests((current) => current.filter((item) => item.id !== request.id));
+      toast.success(t("people.requestRejected"));
+    } catch (caught) {
+      toast.error((caught as { message?: string })?.message ?? t("toast.capaFailed"));
+    } finally {
+      setDeciding(null);
+    }
+  }
 
   async function onFile(file: File | null) {
     if (!file) return;
@@ -139,6 +182,39 @@ export function PeopleView() {
         <p className="mt-2 text-xs opacity-75">{t("people.columns")}</p>
         <p className="mt-1 text-xs opacity-75">{t("people.loginNote")}</p>
       </div>
+
+      {requests.length > 0 && (
+        <section className={cn("rounded-2xl border p-4", panelClass.warning)}>
+          <h2 className="flex items-center gap-2 text-lg font-semibold">
+            <UserCheckIcon className="size-5" />
+            {t("people.pendingTitle", { n: requests.length })}
+          </h2>
+          <p className="mt-1 text-sm opacity-85">{t("people.pendingHint")}</p>
+          <ul className="mt-3 divide-y divide-current/15 rounded-xl border border-current/20 bg-background/60">
+            {requests.map((request) => (
+              <li key={request.id} className="flex flex-wrap items-center justify-between gap-2 px-3 py-2.5 text-sm text-foreground">
+                <span className="min-w-0">
+                  <span className="block font-medium">{request.fullName || request.email}</span>
+                  <span className="block truncate text-xs text-muted-foreground">
+                    {request.fullName ? `${request.email} · ` : ""}
+                    {sites.find((site) => site.id === request.siteId)?.name ?? ""}
+                  </span>
+                </span>
+                <span className="flex gap-2">
+                  <Button type="button" size="sm" className="h-10 gap-1" disabled={deciding === request.id} onClick={() => void approve(request)}>
+                    <CheckIcon className="size-4" />
+                    {t("people.approve")}
+                  </Button>
+                  <Button type="button" size="sm" variant="outline" className="h-10 gap-1" disabled={deciding === request.id} onClick={() => void reject(request)}>
+                    <XIcon className="size-4" />
+                    {t("people.reject")}
+                  </Button>
+                </span>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
 
       <div className="flex items-center gap-3">
         <div className="relative flex-1">

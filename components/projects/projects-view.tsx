@@ -2,28 +2,20 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { Building2Icon, CopyIcon, DownloadIcon, PlusIcon, PrinterIcon, SettingsIcon, UserCogIcon } from "lucide-react";
-import QRCode from "qrcode";
+import { Building2Icon, PlusIcon, SettingsIcon, UserCogIcon } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { QrBlock } from "@/components/qr/qr-block";
 import { StaffForm } from "@/components/settings/staff-form";
 import { can } from "@/lib/auth/permissions";
-import { APP_NAME } from "@/lib/constants";
 import { useLanguage } from "@/lib/i18n/LanguageContext";
+import { companyReportUrl } from "@/lib/qr/urls";
 import { useIncidentStore } from "@/lib/store/incident-store";
 import { panelClass } from "@/lib/tones";
 import { cn } from "@/lib/utils";
 import type { Organization, Profile } from "@/lib/types";
-
-export function companyReportUrl(organizationId: string, origin = typeof window === "undefined" ? "" : window.location.origin) {
-  return `${origin}/report?org=${encodeURIComponent(organizationId)}`;
-}
-
-function escapeHtml(value: string) {
-  return value.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll('"', "&quot;");
-}
 
 /**
  * The app owner's panel. One company per customer (a car plant, a bottle
@@ -36,10 +28,10 @@ export function ProjectsView() {
   const allowed = can(role, "projects.manage");
   const [organizations, setOrganizations] = useState<Organization[] | null>(null);
   const [managers, setManagers] = useState<Profile[]>([]);
-  const [codes, setCodes] = useState<Record<string, string>>({});
   const [form, setForm] = useState({ name: "", organizationNumber: "", industry: "" });
   const [busy, setBusy] = useState(false);
   const [addingFor, setAddingFor] = useState<string | null>(null);
+  const origin = typeof window === "undefined" ? "" : window.location.origin;
 
   useEffect(() => {
     if (!allowed) return;
@@ -61,27 +53,6 @@ export function ProjectsView() {
     };
   }, [allowed, listOrganizations, listProfiles]);
 
-  const orgKey = (organizations ?? []).map((org) => org.id).join(",");
-  useEffect(() => {
-    if (!orgKey) return;
-    let cancelled = false;
-    Promise.all(
-      orgKey.split(",").map(async (id) => {
-        const svg = await QRCode.toString(companyReportUrl(id), { type: "svg", margin: 1, width: 256, errorCorrectionLevel: "M" });
-        return [id, svg] as const;
-      })
-    )
-      .then((entries) => {
-        if (!cancelled) setCodes(Object.fromEntries(entries));
-      })
-      .catch(() => {
-        if (!cancelled) toast.error(t("projects.qrFailed"));
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [orgKey, t]);
-
   if (!allowed) {
     return <p className={cn("rounded-xl border px-4 py-3 text-sm", panelClass.warning)}>{t("projects.ownerOnly")}</p>;
   }
@@ -100,47 +71,6 @@ export function ProjectsView() {
     } finally {
       setBusy(false);
     }
-  }
-
-  async function copy(org: Organization) {
-    try {
-      await navigator.clipboard.writeText(companyReportUrl(org.id));
-      toast.success(t("projects.copied"));
-    } catch {
-      toast.error(t("projects.copyFailed"));
-    }
-  }
-
-  async function download(org: Organization) {
-    const dataUrl = await QRCode.toDataURL(companyReportUrl(org.id), { margin: 2, width: 1024, errorCorrectionLevel: "M" });
-    const link = document.createElement("a");
-    link.href = dataUrl;
-    link.download = `qr-${org.name.replaceAll(/[^a-z0-9]+/gi, "-").toLowerCase()}.png`;
-    document.body.appendChild(link);
-    link.click();
-    link.remove();
-  }
-
-  function print(org: Organization) {
-    const svg = codes[org.id];
-    if (!svg) return;
-    const frame = document.createElement("iframe");
-    Object.assign(frame.style, { position: "fixed", right: "0", bottom: "0", width: "0", height: "0", border: "0" });
-    document.body.appendChild(frame);
-    const doc = frame.contentDocument;
-    if (!doc) return;
-    doc.open();
-    doc.write(`<!doctype html><html><head><meta charset="utf-8"><title>${escapeHtml(org.name)}</title>
-      <style>body{font-family:system-ui,sans-serif;text-align:center;padding:40px;color:#0f172a}
-      h1{font-size:30px;margin:0 0 6px}p{margin:6px 0;color:#475569}svg{width:70vw;max-width:520px;height:auto;margin:24px auto}
-      .url{font-family:monospace;font-size:13px;word-break:break-all}</style></head>
-      <body><h1>${escapeHtml(org.name)}</h1>
-      ${svg}<p><strong>${escapeHtml(t("projects.printTitle"))}</strong></p><p>${escapeHtml(t("projects.printHint"))}</p>
-      <p class="url">${escapeHtml(companyReportUrl(org.id))}</p><p>${APP_NAME}</p></body></html>`);
-    doc.close();
-    frame.contentWindow?.focus();
-    frame.contentWindow?.print();
-    window.setTimeout(() => frame.remove(), 60_000);
   }
 
   return (
@@ -195,31 +125,23 @@ export function ProjectsView() {
                     {[org.industry, org.organizationNumber, t("projects.placeCount", { n: orgSites.length })].filter(Boolean).join(" · ")}
                   </p>
                 </div>
-                <Button type="button" variant="ghost" size="sm" className="h-9 shrink-0 text-muted-foreground" onClick={() => void updateOrganization(org.id, { active: !org.active }).then((updated) => setOrganizations((current) => (current ?? []).map((item) => (item.id === updated.id ? updated : item))))}>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="h-9 shrink-0 text-muted-foreground"
+                  onClick={() =>
+                    void updateOrganization(org.id, { active: !org.active }).then((updated) =>
+                      setOrganizations((current) => (current ?? []).map((item) => (item.id === updated.id ? updated : item)))
+                    )
+                  }
+                >
                   {org.active ? t("audits.deactivate") : t("audits.activate")}
                 </Button>
               </div>
 
-              <div className="grid gap-4 sm:grid-cols-[11rem_1fr]">
-                <div>
-                  <div
-                    className="w-full rounded-xl bg-white p-2 [&_svg]:h-auto [&_svg]:w-full"
-                    aria-label={t("projects.qrFor", { site: org.name })}
-                    // The SVG comes from the qrcode library, not from user input.
-                    dangerouslySetInnerHTML={{ __html: codes[org.id] ?? "" }}
-                  />
-                  <div className="mt-2 grid grid-cols-3 gap-1">
-                    <Button type="button" variant="outline" size="icon" className="h-10 w-full" aria-label={t("projects.copy")} onClick={() => void copy(org)}>
-                      <CopyIcon className="size-4" />
-                    </Button>
-                    <Button type="button" variant="outline" size="icon" className="h-10 w-full" aria-label="PNG" onClick={() => void download(org)}>
-                      <DownloadIcon className="size-4" />
-                    </Button>
-                    <Button type="button" variant="outline" size="icon" className="h-10 w-full" aria-label={t("projects.print")} onClick={() => print(org)}>
-                      <PrinterIcon className="size-4" />
-                    </Button>
-                  </div>
-                </div>
+              <div className="grid gap-4 sm:grid-cols-[13rem_1fr]">
+                <QrBlock url={companyReportUrl(org.id, origin)} title={org.name} />
                 <div className="min-w-0 space-y-2">
                   <p className="text-sm font-semibold">{t("projects.managers")}</p>
                   {orgManagers.length === 0 ? (
@@ -247,9 +169,6 @@ export function ProjectsView() {
                       {t("home.settings")}
                     </Link>
                   </div>
-                  <p className="truncate font-mono text-[11px] text-muted-foreground" title={companyReportUrl(org.id)}>
-                    {companyReportUrl(org.id)}
-                  </p>
                 </div>
               </div>
 

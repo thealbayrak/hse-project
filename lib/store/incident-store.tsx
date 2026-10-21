@@ -10,6 +10,7 @@ import {
   useState,
 } from "react";
 import { toast } from "sonner";
+import { notifyAssignment } from "@/lib/alerts/assignment";
 import { dispatchCriticalIncidentAlert } from "@/lib/alerts/critical-incident";
 import { useAuth } from "@/lib/auth/auth-context";
 import { DEFAULT_SIGNED_IN_ROLE } from "@/lib/auth/permissions";
@@ -36,6 +37,9 @@ import { toSafetyWalkSummary } from "@/lib/supabase/mappers";
 import { isSupabaseConfigured } from "@/lib/supabase/env";
 import type {
   Audit,
+  MembershipRequest,
+  MembershipRequestInput,
+  Subcontractor,
   ChecklistTemplate,
   CreateOrganizationInput,
   CreateSiteInput,
@@ -114,6 +118,12 @@ interface IncidentStoreValue {
   createRiskType: (organizationId: string, label: string) => Promise<RiskType>;
   removeRiskType: (id: string) => Promise<void>;
   listOrgPeople: (organizationId: string) => Promise<SitePerson[]>;
+  listSubcontractors: (organizationId?: string | null) => Promise<Subcontractor[]>;
+  createSubcontractor: (organizationId: string, name: string) => Promise<Subcontractor>;
+  removeSubcontractor: (id: string) => Promise<void>;
+  requestMembership: (input: MembershipRequestInput) => Promise<"requested" | "already_member">;
+  listMembershipRequests: () => Promise<MembershipRequest[]>;
+  decideMembership: (id: string, status: "approved" | "rejected") => Promise<void>;
   createStaff: (input: CreateStaffInput) => Promise<CreateStaffResult>;
   /** Re-reads sites and areas after settings changed. */
   reloadSites: () => Promise<void>;
@@ -162,6 +172,11 @@ export function IncidentProvider({ children }: { children: React.ReactNode }) {
   const [highlightedIds, setHighlightedIds] = useState<string[]>([]);
   const [pendingCount, setPendingCount] = useState(0);
   const syncingRef = useRef(false);
+  // Latest list for callbacks that compare the previous owner or severity.
+  const incidentsRef = useRef<Incident[]>([]);
+  useEffect(() => {
+    incidentsRef.current = incidents;
+  }, [incidents]);
 
   // The signed-in person's profile (matched by e-mail) decides their role.
   // Demo mode has no session: act as an HSE manager so every screen is reachable.
@@ -382,11 +397,31 @@ export function IncidentProvider({ children }: { children: React.ReactNode }) {
 
   const updateCapa = useCallback(
     async (incidentId: string, capa: UpdateCapaInput) => {
+      const before = incidentsRef.current.find((item) => item.id === incidentId);
       const updated = await repository.updateCapa(incidentId, capa);
       await refresh().catch(() => undefined);
+
+      // The severity is rated here by a manager, so the statutory alert fires here too.
+      if (capa.severity === "critical" && before?.severity !== "critical") {
+        dispatchCriticalIncidentAlert(updated, locale);
+      }
+      // A new action owner is told by e-mail.
+      if (capa.assigneeId && capa.assigneeId !== (before?.capa?.assigneeId ?? "")) {
+        void notifyAssignment({
+          incidentId,
+          assigneeId: capa.assigneeId,
+          dueDate: capa.dueDate,
+          note: capa.notes,
+          language: locale,
+        }).then((result) => {
+          if (result === "sent") toast.success(t("assignment.sent"));
+          else if (result === "no-email") toast.message(t("assignment.noEmail"));
+          else if (result === "failed") toast.error(t("assignment.failed"));
+        });
+      }
       return updated;
     },
-    [refresh, repository]
+    [refresh, repository, locale, t]
   );
 
   const trackIncident = useCallback((code: string) => repository.trackIncident(code), [repository]);
@@ -476,6 +511,15 @@ export function IncidentProvider({ children }: { children: React.ReactNode }) {
   const createRiskType = useCallback((organizationId: string, label: string) => repository.createRiskType(organizationId, label), [repository]);
   const removeRiskType = useCallback((id: string) => repository.removeRiskType(id), [repository]);
   const listOrgPeople = useCallback((organizationId: string) => repository.listOrgPeople(organizationId), [repository]);
+  const listSubcontractors = useCallback((organizationId?: string | null) => repository.listSubcontractors(organizationId), [repository]);
+  const createSubcontractor = useCallback((organizationId: string, name: string) => repository.createSubcontractor(organizationId, name), [repository]);
+  const removeSubcontractor = useCallback((id: string) => repository.removeSubcontractor(id), [repository]);
+  const requestMembership = useCallback((input: MembershipRequestInput) => repository.requestMembership(input), [repository]);
+  const listMembershipRequests = useCallback(() => repository.listMembershipRequests(), [repository]);
+  const decideMembership = useCallback(
+    (id: string, status: "approved" | "rejected") => repository.decideMembership(id, status, profile?.id ?? null),
+    [repository, profile]
+  );
   const createStaff = useCallback((input: CreateStaffInput) => repository.createStaff(input), [repository]);
 
   // Checklist templates and audits
@@ -553,6 +597,12 @@ export function IncidentProvider({ children }: { children: React.ReactNode }) {
       createRiskType,
       removeRiskType,
       listOrgPeople,
+      listSubcontractors,
+      createSubcontractor,
+      removeSubcontractor,
+      requestMembership,
+      listMembershipRequests,
+      decideMembership,
       createStaff,
       reloadSites,
       updateStatus,
@@ -604,6 +654,12 @@ export function IncidentProvider({ children }: { children: React.ReactNode }) {
       createRiskType,
       removeRiskType,
       listOrgPeople,
+      listSubcontractors,
+      createSubcontractor,
+      removeSubcontractor,
+      requestMembership,
+      listMembershipRequests,
+      decideMembership,
       createStaff,
       reloadSites,
       updateStatus,
