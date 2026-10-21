@@ -984,7 +984,15 @@ export function ReportWizard({ aiEnabled = false }: { aiEnabled?: boolean }) {
             type="button"
             className="h-14 text-base"
             disabled={(step === 0 && !step1Ready) || (step === 1 && (!step2Ready || analysis.status === "working"))}
-            title={step === 1 && !step2Ready ? t("report.describeFirst") : undefined}
+            title={
+              step === 1 && !step2Ready
+                ? draft.description.trim().length < 8
+                  ? t("report.describeFirst")
+                  : needsRisk && draft.categories.length === 0
+                    ? t("incident.whatRiskRequired")
+                    : t("join.invalid")
+                : undefined
+            }
             onClick={() => setStep((current) => current + 1)}
           >
             {t("buttons.continue")}
