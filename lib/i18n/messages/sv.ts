@@ -14,6 +14,7 @@ export const sv: MessageTable = {
     myActions: "Mina åtgärder",
     investigations: "Utredningar",
     followUps: "Uppföljning",
+    more: "Mer",
   },
   theme: {
     system: "Auto",
@@ -288,6 +289,10 @@ export const sv: MessageTable = {
     pendingReview: "{n} rapport(er) väntar på bedömning",
     pendingUsers: "{n} person(er) väntar på godkännande",
     filterSubcontractor: "Företag",
+    filters: "Filter",
+    show: "Visa",
+    hide: "Dölj",
+    stats: "Statistik",
   },
   walk: {
     dialogTitle: "Skyddsrond · Veckovis säkerhetsrond",
@@ -1119,5 +1124,10 @@ export const sv: MessageTable = {
     introBy_area: "{by} har gjort dig ansvarig för det här området. Anmälningar därifrån visas på din sida.",
     priority: "Prioritet",
     open: "Öppna",
+  },
+  filter: {
+    search: "Sök…",
+    none: "Inget hittades",
+    clear: "Rensa val",
   },
 };

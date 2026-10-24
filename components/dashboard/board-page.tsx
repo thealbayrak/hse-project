@@ -4,6 +4,7 @@ import { useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { IncidentBoard } from "@/components/dashboard/incident-board";
 import { IncidentDetailDialog } from "@/components/dashboard/incident-detail-dialog";
+import { MultiSelect } from "@/components/ui/multi-select";
 import { can } from "@/lib/auth/permissions";
 import { useLanguage } from "@/lib/i18n/LanguageContext";
 import { useIncidentStore } from "@/lib/store/incident-store";
@@ -26,9 +27,6 @@ function Chip({ active, onClick, children }: { active: boolean; onClick: () => v
   );
 }
 
-function toggle<T>(list: T[], value: T): T[] {
-  return list.includes(value) ? list.filter((item) => item !== value) : [...list, value];
-}
 
 /**
  * The Kanban board on its own page: three columns (open / unassigned, in
@@ -78,17 +76,17 @@ export function BoardPage() {
         <Chip active={mine} onClick={() => setMine((value) => !value)}>
           {t("board.mine")}
         </Chip>
-        {sites.length > 1 &&
-          sites.map((site) => (
-            <Chip key={site.id} active={siteIds.includes(site.id)} onClick={() => setSiteIds((current) => toggle(current, site.id))}>
-              {site.name}
-            </Chip>
-          ))}
-        {subcontractorOptions.map((name) => (
-          <Chip key={name} active={subcontractors.includes(name)} onClick={() => setSubcontractors((current) => toggle(current, name))}>
-            {name}
-          </Chip>
-        ))}
+        {sites.length > 1 && (
+          <MultiSelect label={t("dashboard.filterSite")} options={sites.map((site) => ({ value: site.id, label: site.name }))} selected={siteIds} onChange={setSiteIds} />
+        )}
+        {subcontractorOptions.length > 0 && (
+          <MultiSelect
+            label={t("dashboard.filterSubcontractor")}
+            options={subcontractorOptions.map((name) => ({ value: name, label: name }))}
+            selected={subcontractors}
+            onChange={setSubcontractors}
+          />
+        )}
       </div>
 
       {loading && incidents.length === 0 ? (

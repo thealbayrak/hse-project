@@ -13,7 +13,7 @@ const ORDER: Severity[] = ["critical", "high", "medium", "low", "unrated"];
 const COLLAPSED_ROWS = 6;
 
 /** Who reported how much and how serious: a stacked bar per person, values written next to it. */
-export function ReporterPanel({ incidents }: { incidents: Incident[] }) {
+export function ReporterPanel({ incidents, bare = false }: { incidents: Incident[]; /** Without its own frame, when it sits inside another one. */ bare?: boolean }) {
   const { locale, t } = useLanguage();
   const [showAll, setShowAll] = useState(false);
   const rows = reporterStats(incidents);
@@ -22,13 +22,15 @@ export function ReporterPanel({ incidents }: { incidents: Incident[] }) {
   const visible = showAll ? rows : rows.slice(0, COLLAPSED_ROWS);
 
   return (
-    <section aria-label={t("reporters.title")} className="rounded-2xl border border-border bg-card p-4">
+    <section aria-label={t("reporters.title")} className={bare ? "p-3" : "rounded-2xl border border-border bg-card p-4"}>
       <div className="flex items-start justify-between gap-3">
         <div>
-          <h3 className="flex items-center gap-2 text-sm font-semibold">
-            <UsersIcon className="size-4 text-amber-600 dark:text-amber-400" />
-            {t("reporters.title")}
-          </h3>
+          {!bare && (
+            <h3 className="flex items-center gap-2 text-sm font-semibold">
+              <UsersIcon className="size-4 text-amber-600 dark:text-amber-400" />
+              {t("reporters.title")}
+            </h3>
+          )}
           <p className="mt-0.5 text-xs text-muted-foreground">{t("reporters.hint")}</p>
         </div>
         <ul className="hidden shrink-0 flex-wrap justify-end gap-x-3 gap-y-1 text-[11px] text-muted-foreground sm:flex" aria-label={t("reporters.legend")}>

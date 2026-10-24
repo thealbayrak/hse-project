@@ -36,6 +36,7 @@ import { addBusinessDaysIsoDate } from "@/lib/skyddsrond/business-days";
 import { useIncidentStore } from "@/lib/store/incident-store";
 import { cn } from "@/lib/utils";
 import { AssignPanel } from "@/components/roles/assign-panel";
+import { MultiSelect } from "@/components/ui/multi-select";
 import { PeopleLine } from "@/components/roles/report-card";
 import { can } from "@/lib/auth/permissions";
 import { panelClass, severityClass, statusClass } from "@/lib/tones";
@@ -330,26 +331,14 @@ function IncidentDetail({ incident, onClose }: { incident: Incident; onClose: ()
           </div>
           <div className="space-y-2 sm:col-span-2">
             <Label>{t("dashboard.categoriesLabel")}</Label>
-            <div className="flex flex-wrap gap-1.5">
-              {riskChoices.map((id) => {
-                const item = { id };
-                const active = categories.includes(item.id);
-                return (
-                  <button
-                    key={item.id}
-                    type="button"
-                    aria-pressed={active}
-                    onClick={() => setCategories((current) => (active ? current.filter((id) => id !== item.id) : [...current, item.id]))}
-                    className={cn(
-                      "min-h-10 rounded-full border px-3 text-xs font-medium",
-                      active ? "border-amber-500 bg-amber-500 text-slate-950" : "border-border bg-background text-muted-foreground"
-                    )}
-                  >
-                    {categoryLabel(item.id, locale)}
-                  </button>
-                );
-              })}
-            </div>
+            <MultiSelect
+              label={t("dashboard.categoriesLabel")}
+              options={riskChoices.map((id) => ({ value: id, label: categoryLabel(id, locale) }))}
+              selected={categories}
+              onChange={(next) => setCategories(next)}
+              searchAbove={10}
+            />
+            {categories.length > 0 && <p className="text-sm">{categoriesLabel(categories, locale)}</p>}
             <p className="text-xs text-muted-foreground">{t("dashboard.categoriesHint")}</p>
           </div>
           <div className="space-y-2 sm:col-span-2">

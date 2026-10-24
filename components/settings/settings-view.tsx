@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
-import { Building2Icon, EyeOffIcon, HardHatIcon, MapPinIcon, PlusIcon, QrCodeIcon, ShieldAlertIcon, UploadIcon, UsersIcon, XIcon } from "lucide-react";
+import { ChevronDownIcon, Building2Icon, EyeOffIcon, HardHatIcon, MapPinIcon, PlusIcon, QrCodeIcon, ShieldAlertIcon, UploadIcon, UsersIcon, XIcon } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -240,11 +240,15 @@ export function SettingsView() {
       )}
 
       {/* Places and their areas */}
-      <section className="space-y-3 rounded-2xl border border-border bg-card p-4">
-        <h2 className="flex items-center gap-2 text-lg font-semibold">
-          <MapPinIcon className="size-5" />
-          {t("settings.placesTitle")}
-        </h2>
+      <details className="group rounded-2xl border border-border bg-card" open>
+        <summary className="flex min-h-14 cursor-pointer items-center justify-between gap-2 px-4 marker:content-none">
+          <span className="flex items-center gap-2 text-lg font-semibold">
+            <MapPinIcon className="size-5" />
+            {t("settings.placesTitle")}
+          </span>
+          <ChevronDownIcon className="size-5 text-muted-foreground transition-transform group-open:rotate-180" />
+        </summary>
+        <div className="space-y-3 px-4 pb-4">
         <p className="text-sm text-muted-foreground">{t("settings.placesHint")}</p>
         <div className="space-y-3">
           {orgSites.length === 0 && <p className="text-sm text-muted-foreground">{t("settings.noPlaces")}</p>}
@@ -343,14 +347,19 @@ export function SettingsView() {
             {t("settings.addPlace")}
           </Button>
         </div>
-      </section>
+        </div>
+      </details>
 
       {/* Risk types */}
-      <section className="space-y-3 rounded-2xl border border-border bg-card p-4">
-        <h2 className="flex items-center gap-2 text-lg font-semibold">
-          <ShieldAlertIcon className="size-5" />
-          {t("settings.risksTitle")}
-        </h2>
+      <details className="group rounded-2xl border border-border bg-card">
+        <summary className="flex min-h-14 cursor-pointer items-center justify-between gap-2 px-4 marker:content-none">
+          <span className="flex items-center gap-2 text-lg font-semibold">
+            <ShieldAlertIcon className="size-5" />
+            {t("settings.risksTitle")}
+          </span>
+          <ChevronDownIcon className="size-5 text-muted-foreground transition-transform group-open:rotate-180" />
+        </summary>
+        <div className="space-y-3 px-4 pb-4">
         <p className="text-sm text-muted-foreground">{t("settings.risksHint")}</p>
         <div className="flex flex-wrap gap-1.5">
           {riskTypes.map((risk) => (
@@ -391,14 +400,19 @@ export function SettingsView() {
           <summary className="cursor-pointer">{t("settings.builtInRisks")}</summary>
           <p className="mt-2">{RISK_CATEGORIES.map((item) => categoryLabel(item.id, locale)).join(" · ")}</p>
         </details>
-      </section>
+        </div>
+      </details>
 
       {/* Subcontractors */}
-      <section className="space-y-3 rounded-2xl border border-border bg-card p-4">
-        <h2 className="flex items-center gap-2 text-lg font-semibold">
-          <HardHatIcon className="size-5" />
-          {t("settings.subsTitle")}
-        </h2>
+      <details className="group rounded-2xl border border-border bg-card">
+        <summary className="flex min-h-14 cursor-pointer items-center justify-between gap-2 px-4 marker:content-none">
+          <span className="flex items-center gap-2 text-lg font-semibold">
+            <HardHatIcon className="size-5" />
+            {t("settings.subsTitle")}
+          </span>
+          <ChevronDownIcon className="size-5 text-muted-foreground transition-transform group-open:rotate-180" />
+        </summary>
+        <div className="space-y-3 px-4 pb-4">
         <p className="text-sm text-muted-foreground">{t("settings.subsHint")}</p>
         <div className="flex flex-wrap gap-1.5">
           {subcontractors.map((sub) => (
@@ -435,7 +449,8 @@ export function SettingsView() {
             {t("picker.add")}
           </Button>
         </div>
-      </section>
+        </div>
+      </details>
 
       {/* People */}
       <section className="space-y-3 rounded-2xl border border-border bg-card p-4">

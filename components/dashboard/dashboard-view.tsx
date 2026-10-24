@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import {
+  ChevronDownIcon,
   ActivityIcon,
   AlertOctagonIcon,
   CalendarClockIcon,
@@ -26,6 +27,7 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { MultiSelect } from "@/components/ui/multi-select";
 import { StatutoryBanner } from "@/components/layout/statutory-banner";
 import { AiReportButton } from "@/components/ai/ai-report-dialog";
 import { KpiPanel } from "@/components/dashboard/kpi-panel";
@@ -124,10 +126,6 @@ export function matchesFilters(incident: Incident, filters: FeedFilters) {
     if (!inPeriod(incident.createdAt, { from: filters.from || "1970-01-01", to: filters.to || "2999-12-31" })) return false;
   }
   return true;
-}
-
-function toggle<T>(list: T[], value: T): T[] {
-  return list.includes(value) ? list.filter((item) => item !== value) : [...list, value];
 }
 
 export function DashboardView() {
@@ -358,9 +356,17 @@ export function DashboardView() {
         <MetricTile label={t("dashboard.daysFree")} value={metrics.daysIncidentFree} icon={ShieldAlertIcon} tone="emerald" loading={showSkeleton} />
       </div>
 
-      <KpiPanel incidents={filtered} />
-
-      <ReporterPanel incidents={filtered} />
+      {/* Statistics fold away so the page opens on what needs doing */}
+      <details open className="group space-y-3">
+        <summary className="flex min-h-11 cursor-pointer items-center justify-between gap-2 text-sm font-semibold marker:content-none">
+          {t("dashboard.stats")}
+          <ChevronDownIcon className="size-4 text-muted-foreground transition-transform group-open:rotate-180" />
+        </summary>
+        <div className="space-y-3">
+          <KpiPanel incidents={filtered} />
+          <ReporterPanel incidents={filtered} />
+        </div>
+      </details>
 
       {/* 3. Tabs: observations, walks & audits, accidents */}
       <div role="tablist" aria-label={t("dashboard.tabs")} className="grid grid-cols-3 gap-1 rounded-2xl border border-border bg-secondary/40 p-1">
@@ -442,72 +448,60 @@ export function DashboardView() {
         </div>
       </div>
 
-      {/* 5. Multi-select filters */}
-      <div className="space-y-3 rounded-2xl border border-border bg-card p-3">
-        <FilterRow label={t("dashboard.status")}>
-          {STATUS_FILTERS.map((id) => (
-            <FilterChip key={id} active={filters.statuses.includes(id)} onClick={() => setFilters((f) => ({ ...f, statuses: toggle(f.statuses, id) }))}>
-              {statusLabel(id, locale)}
-            </FilterChip>
-          ))}
-        </FilterRow>
-        <FilterRow label={t("dashboard.severityLabel")}>
-          {SEVERITY_FILTERS.map((id) => (
-            <FilterChip key={id} active={filters.severities.includes(id)} onClick={() => setFilters((f) => ({ ...f, severities: toggle(f.severities, id) }))}>
-              {severityLabel(id, locale)}
-            </FilterChip>
-          ))}
-        </FilterRow>
+      {/* 5. Filters: one button each; the choices open in a list */}
+      <div className="flex flex-wrap items-center gap-2" role="group" aria-label={t("dashboard.filters")}>
+        <MultiSelect
+          label={t("dashboard.status")}
+          options={STATUS_FILTERS.map((id) => ({ value: id, label: statusLabel(id, locale) }))}
+          selected={filters.statuses}
+          onChange={(next) => setFilters((f) => ({ ...f, statuses: next }))}
+        />
+        <MultiSelect
+          label={t("dashboard.severityLabel")}
+          options={SEVERITY_FILTERS.map((id) => ({ value: id, label: severityLabel(id, locale) }))}
+          selected={filters.severities}
+          onChange={(next) => setFilters((f) => ({ ...f, severities: next }))}
+        />
         {typeOptions.length > 1 && (
-          <FilterRow label={t("dashboard.filterType")}>
-            {typeOptions.map((id) => (
-              <FilterChip key={id} active={filters.types.includes(id)} onClick={() => setFilters((f) => ({ ...f, types: toggle(f.types, id) }))}>
-                {typeLabel(id, locale)}
-              </FilterChip>
-            ))}
-          </FilterRow>
+          <MultiSelect
+            label={t("dashboard.filterType")}
+            options={typeOptions.map((id) => ({ value: id, label: typeLabel(id, locale) }))}
+            selected={filters.types}
+            onChange={(next) => setFilters((f) => ({ ...f, types: next }))}
+          />
         )}
         {categoryOptions.length > 0 && (
-          <FilterRow label={t("dashboard.filterCategory")}>
-            {categoryOptions.map((id) => (
-              <FilterChip key={id} active={filters.categories.includes(id)} onClick={() => setFilters((f) => ({ ...f, categories: toggle(f.categories, id) }))}>
-                {categoryLabel(id, locale)}
-              </FilterChip>
-            ))}
-          </FilterRow>
+          <MultiSelect
+            label={t("dashboard.filterCategory")}
+            options={categoryOptions.map((id) => ({ value: id, label: categoryLabel(id, locale) }))}
+            selected={filters.categories}
+            onChange={(next) => setFilters((f) => ({ ...f, categories: next }))}
+          />
         )}
         {subcontractorOptions.length > 0 && (
-          <FilterRow label={t("dashboard.filterSubcontractor")}>
-            {subcontractorOptions.map((name) => (
-              <FilterChip
-                key={name || "none"}
-                active={filters.subcontractors.includes(name)}
-                onClick={() => setFilters((f) => ({ ...f, subcontractors: toggle(f.subcontractors, name) }))}
-              >
-                {name || t("kpi.unspecified")}
-              </FilterChip>
-            ))}
-          </FilterRow>
+          <MultiSelect
+            label={t("dashboard.filterSubcontractor")}
+            options={subcontractorOptions.map((name) => ({ value: name, label: name || t("kpi.unspecified") }))}
+            selected={filters.subcontractors}
+            onChange={(next) => setFilters((f) => ({ ...f, subcontractors: next }))}
+          />
         )}
         {sites.length > 1 && (
-          <FilterRow label={t("dashboard.filterSite")}>
-            {sites.map((site) => (
-              <FilterChip key={site.id} active={filters.siteIds.includes(site.id)} onClick={() => setFilters((f) => ({ ...f, siteIds: toggle(f.siteIds, site.id) }))}>
-                {site.name}
-              </FilterChip>
-            ))}
-          </FilterRow>
+          <MultiSelect
+            label={t("dashboard.filterSite")}
+            options={sites.map((site) => ({ value: site.id, label: site.name }))}
+            selected={filters.siteIds}
+            onChange={(next) => setFilters((f) => ({ ...f, siteIds: next }))}
+          />
         )}
-        <FilterRow label={t("dashboard.filterDate")}>
-          <Input type="date" aria-label={t("reports.from")} value={filters.from} max={filters.to || undefined} onChange={(event) => setFilters((f) => ({ ...f, from: event.target.value }))} className="h-11 w-auto" />
-          <Input type="date" aria-label={t("reports.to")} value={filters.to} min={filters.from || undefined} onChange={(event) => setFilters((f) => ({ ...f, to: event.target.value }))} className="h-11 w-auto" />
-          {activeFilterCount > 0 && (
-            <Button type="button" variant="ghost" size="sm" className="h-11 gap-2 text-muted-foreground" onClick={() => setFilters(EMPTY_FILTERS)}>
-              <FilterXIcon className="size-4" />
-              {t("dashboard.clearFilters", { n: activeFilterCount })}
-            </Button>
-          )}
-        </FilterRow>
+        <Input type="date" aria-label={t("reports.from")} value={filters.from} max={filters.to || undefined} onChange={(event) => setFilters((f) => ({ ...f, from: event.target.value }))} className="h-11 w-auto" />
+        <Input type="date" aria-label={t("reports.to")} value={filters.to} min={filters.from || undefined} onChange={(event) => setFilters((f) => ({ ...f, to: event.target.value }))} className="h-11 w-auto" />
+        {activeFilterCount > 0 && (
+          <Button type="button" variant="ghost" size="sm" className="h-11 gap-2 text-muted-foreground" onClick={() => setFilters(EMPTY_FILTERS)}>
+            <FilterXIcon className="size-4" />
+            {t("dashboard.clearFilters", { n: activeFilterCount })}
+          </Button>
+        )}
       </div>
 
       {view === "board" && !showSkeleton && (
@@ -749,38 +743,5 @@ function MetricTile({
         <p className="mt-1 truncate text-[11px] text-muted-foreground">{label}</p>
       </div>
     </div>
-  );
-}
-
-function FilterRow({ label, children }: { label: string; children: React.ReactNode }) {
-  return (
-    <div className="flex flex-wrap items-center gap-2">
-      <span className="w-full text-[11px] font-semibold tracking-wide text-muted-foreground uppercase sm:w-24">{label}</span>
-      {children}
-    </div>
-  );
-}
-
-function FilterChip({
-  active,
-  onClick,
-  children,
-}: {
-  active: boolean;
-  onClick: () => void;
-  children: React.ReactNode;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      aria-pressed={active}
-      className={cn(
-        "min-h-10 rounded-full border px-3.5 text-sm font-medium",
-        active ? "border-amber-500 bg-amber-500 text-slate-950" : "border-border bg-background text-foreground"
-      )}
-    >
-      {children}
-    </button>
   );
 }

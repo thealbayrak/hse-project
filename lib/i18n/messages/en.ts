@@ -12,6 +12,7 @@ export const en = {
     myActions: "My actions",
     investigations: "Investigations",
     followUps: "Follow-ups",
+    more: "More",
   },
   theme: {
     system: "Auto",
@@ -287,6 +288,10 @@ export const en = {
     pendingReview: "{n} report(s) waiting to be rated",
     pendingUsers: "{n} person(s) waiting for approval",
     filterSubcontractor: "Company",
+    filters: "Filters",
+    show: "Show",
+    hide: "Hide",
+    stats: "Statistics",
   },
   walk: {
     dialogTitle: "Skyddsrond · Weekly safety walk",
@@ -1117,6 +1122,11 @@ export const en = {
     introBy_area: "{by} made you responsible for this area. Reports from it will show up on your page.",
     priority: "Priority",
     open: "Open it",
+  },
+  filter: {
+    search: "Search…",
+    none: "Nothing found",
+    clear: "Clear selection",
   },
 } as const;
 

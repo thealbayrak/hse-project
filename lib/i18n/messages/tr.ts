@@ -14,6 +14,7 @@ export const tr: MessageTable = {
     myActions: "Aksiyonlarım",
     investigations: "Soruşturmalar",
     followUps: "Takip",
+    more: "Daha fazla",
   },
   theme: {
     system: "Otomatik",
@@ -288,6 +289,10 @@ export const tr: MessageTable = {
     pendingReview: "{n} bildirim derecelendirme bekliyor",
     pendingUsers: "{n} kişi onay bekliyor",
     filterSubcontractor: "Şirket",
+    filters: "Filtreler",
+    show: "Göster",
+    hide: "Gizle",
+    stats: "İstatistikler",
   },
   walk: {
     dialogTitle: "Skyddsrond · Haftalık güvenlik turu",
@@ -1118,5 +1123,10 @@ export const tr: MessageTable = {
     introBy_area: "{by} sizi bu alanın sorumlusu yaptı. Buradaki bildirimler sayfanızda görünür.",
     priority: "Öncelik",
     open: "Aç",
+  },
+  filter: {
+    search: "Ara…",
+    none: "Bir şey bulunamadı",
+    clear: "Seçimi temizle",
   },
 };

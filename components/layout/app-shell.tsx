@@ -24,6 +24,7 @@ import {
 import { AssistantPanel } from "@/components/ai/assistant-panel";
 import { useBrand } from "@/components/brand-context";
 import { DemoSwitcher } from "@/components/demo-switcher";
+import { NavMore } from "@/components/layout/nav-more";
 import { LanguageToggle } from "@/components/LanguageToggle";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { cn } from "@/lib/utils";
@@ -52,6 +53,9 @@ const NAV: { href: string; key: string; icon: typeof ShieldCheckIcon; permission
   { href: "/super-admin", key: "home.projects", icon: QrCodeIcon, permission: "projects.manage", mobile: false },
 ];
 
+/** Always in the top bar; everything else goes behind "More" when a role has many pages. */
+const MAIN_NAV = new Set(["/", "/report", "/admin/dashboard", "/dashboard", "/dashboard/area", "/dashboard/my-actions", "/board", "/tasks", "/super-admin"]);
+
 export function AppShell({
   children,
   eyebrow,
@@ -79,6 +83,9 @@ export function AppShell({
         (item) => !(item.href === "/dashboard" && can(role, "admin.dashboard"))
       );
   const mobileNav = nav.filter((item) => item.mobile);
+  // The top bar shows the main places; the rest sit behind "More" once there are many.
+  const inlineNav = nav.length <= 6 ? nav : nav.filter((item) => MAIN_NAV.has(item.href));
+  const moreNav = nav.length <= 6 ? [] : nav.filter((item) => !MAIN_NAV.has(item.href));
 
   async function handleSignOut() {
     await signOut();
@@ -101,7 +108,7 @@ export function AppShell({
           </Link>
           <div className="flex items-center gap-1.5 sm:gap-2">
             <nav className="hidden items-center gap-1 md:flex">
-              {nav.map((item) => {
+              {inlineNav.map((item) => {
                 const active = pathname === item.href;
                 return (
                   <Link
@@ -119,6 +126,7 @@ export function AppShell({
                   </Link>
                 );
               })}
+              {moreNav.length > 0 && <NavMore pathname={pathname} items={moreNav.map((item) => ({ href: item.href, label: t(item.key), icon: item.icon }))} />}
             </nav>
             <LanguageToggle />
             <ThemeToggle />
