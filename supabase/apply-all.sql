@@ -3367,6 +3367,18 @@ grant execute on function public.verify_followup(uuid, boolean, text) to authent
 select 'roles + assignments + areas ready' as result;
 
 
+-- ===== supabase/migrations/20261024100000_revoke_anon_workflow_functions.sql =====
+-- Supabase grants new functions to the anon role by default; these only make sense for signed-in people.
+revoke execute on function public.assign_incident(uuid, uuid, uuid, uuid, boolean, date, date) from anon;
+revoke execute on function public.save_investigation(uuid, text, text, text) from anon;
+revoke execute on function public.verify_followup(uuid, boolean, text) from anon;
+revoke execute on function public.rotate_report_key(uuid, uuid) from anon;
+revoke execute on function public.is_area_responsible_for(uuid) from anon;
+revoke execute on function public.is_assigned_to_me(uuid) from anon;
+
+select 'workflow functions closed to anonymous callers' as result;
+
+
 -- ===== supabase/seed.sql =====
 -- Demo organisations, sites and locations (same data as the offline mock).
 insert into public.organizations (id, name, organization_number, address) values
