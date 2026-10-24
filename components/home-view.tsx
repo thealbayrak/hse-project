@@ -42,9 +42,9 @@ const STAFF_LINKS: { href: string; permission: Permission; titleKey: string; hin
 export function HomeView() {
   const { t } = useLanguage();
   const { enabled: authEnabled, session, email } = useAuth();
-  const { sites, profile, profileError, role, listTasks } = useIncidentStore();
+  const { sites, profile, profileError, role, listTasks, isSignedIn } = useIncidentStore();
   const organisations = [...new Set(sites.map((site) => site.organizationName).filter(Boolean))] as string[];
-  const signedIn = !authEnabled || Boolean(session);
+  const signedIn = isSignedIn;
   const staffLinks = STAFF_LINKS.filter((link) => can(role, link.permission));
   const [myOpenTasks, setMyOpenTasks] = useState<number | null>(null);
 

@@ -17,6 +17,19 @@ export const SITES: Site[] = [
     ],
   },
   {
+    id: "site-skovde",
+    name: "Volvo Skövde Engine Plant",
+    city: "Skövde",
+    address: "Hjovägen, 541 36 Skövde",
+    organizationId: "org-volvo",
+    organizationName: "Volvo Personvagnar AB",
+    organizationNumber: "556074-3089",
+    locations: [
+      { id: "loc-skovde-engine", name: "Engine Assembly" },
+      { id: "loc-skovde-yard", name: "Outdoor Yard" },
+    ],
+  },
+  {
     id: "site-kvillebacken",
     name: "Kvillebäcken Construction Site",
     city: "Gothenburg",

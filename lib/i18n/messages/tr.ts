@@ -964,4 +964,11 @@ export const tr: MessageTable = {
     outsideAreaHint: "Şantiyeden uzak bir yerden gönderildi",
     outsideAreaDetail: "Bu bildirim şantiyeden yaklaşık {m} m uzaktan gönderildi. Derecelendirmeden önce kontrol edin.",
   },
+  demo: {
+    viewAs: "Şu gözle gör",
+    hint: "Demo: burada giriş yok. Uygulamayı kimin gözüyle görmek istediğini seç; herkes yalnızca kendi şirketini görür.",
+    worker: "İşçi (QR kod)",
+    workerHint: "Hesap yok; yalnızca bildirim formu",
+    allCompanies: "Tüm şirketler",
+  },
 };

@@ -8,6 +8,7 @@ import {
   useMemo,
   useRef,
   useState,
+  useSyncExternalStore,
 } from "react";
 import { toast } from "sonner";
 import { notifyAssignment } from "@/lib/alerts/assignment";
@@ -17,6 +18,8 @@ import { DEFAULT_SIGNED_IN_ROLE } from "@/lib/auth/permissions";
 import { createIncidentRepository } from "@/lib/data/factory";
 import { computeMetrics, sortIncidents } from "@/lib/data/metrics";
 import type { ImportResult, IncidentRepository } from "@/lib/data/repository";
+import { DEMO_WORKER_VIEWER, demoProfile, type DemoPersonaId } from "@/lib/demo/people";
+import { readPersona, serverPersona, subscribePersona } from "@/lib/demo/persona";
 import { SEED_INCIDENTS } from "@/lib/data/seed-incidents";
 import { SEED_SAFETY_WALKS } from "@/lib/data/seed-walks";
 import { SITES } from "@/lib/data/sites";
@@ -93,6 +96,10 @@ interface IncidentStoreValue {
   trackIncident: (code: string) => Promise<TrackedIncident | null>;
   /** Profile of the signed-in person (undefined while resolving, null when not in the people list). */
   profile: Profile | null | undefined;
+  /** True when someone is signed in (or, in the demo, viewing as a person with an account). Workers never are. */
+  isSignedIn: boolean;
+  /** The demo only: who the data is being viewed as. */
+  demoPersona: DemoPersonaId | null;
   /** Why the profile could not be read (a database error), as opposed to simply not being in the list. */
   profileError: string | null;
   /** Effective role: from the profile, the default for signed-in users without one, hse_manager in demo mode, null when signed out. */
@@ -187,7 +194,14 @@ export function IncidentProvider({ children }: { children: React.ReactNode }) {
 
   // The signed-in person's profile (matched by e-mail) decides their role.
   // Demo mode has no session: act as an HSE manager so every screen is reachable.
-  const [profile, setProfile] = useState<Profile | null | undefined>(usingSupabase ? undefined : null);
+  const [liveProfile, setProfile] = useState<Profile | null | undefined>(usingSupabase ? undefined : null);
+  // The demo has no logins: a switcher picks the person the data is shown to.
+  const persona = useSyncExternalStore(subscribePersona, readPersona, serverPersona);
+  const demoViewer = usingSupabase ? null : persona === "worker" ? DEMO_WORKER_VIEWER : demoProfile(persona);
+  const profile = usingSupabase ? liveProfile : persona === "worker" ? null : demoViewer;
+  // Set during render on purpose: child pages load their data in effects that run before this provider's own,
+  // and the demo repository must already know who is looking. It only stores the viewer, so repeating it is harmless.
+  if (!usingSupabase) repository.setDemoViewer?.(demoViewer);
   const [signedInEmail, setSignedInEmail] = useState<string | null>(null);
   const [profileError, setProfileError] = useState<string | null>(null);
   const sessionEmail = session?.user.email ?? null;
@@ -223,13 +237,15 @@ export function IncidentProvider({ children }: { children: React.ReactNode }) {
   }, [repository, sessionEmail]);
   // Demo mode acts as the app owner so every screen is reachable.
   const role: Role | null = !usingSupabase
-    ? "super_admin"
+    ? (demoViewer?.role ?? "super_admin")
     : session
       ? profile === undefined
         ? null
         : (profile?.role ?? DEFAULT_SIGNED_IN_ROLE)
       : null;
   void signedInEmail;
+  const isSignedIn = usingSupabase ? Boolean(session) : persona !== "worker";
+  const demoPersona: DemoPersonaId | null = usingSupabase ? null : persona;
 
   // IndexedDB unavailable (private mode) means nothing can be queued either, so errors are ignored.
   const refreshPending = useCallback(
@@ -237,6 +253,7 @@ export function IncidentProvider({ children }: { children: React.ReactNode }) {
     []
   );
 
+  const demoViewerKey = demoViewer?.id ?? null;
   const refresh = useCallback(async () => {
     try {
       const nextSites = await repository.listSites();
@@ -261,7 +278,9 @@ export function IncidentProvider({ children }: { children: React.ReactNode }) {
     } finally {
       setLoading(false);
     }
-  }, [canReadIncidents, repository]);
+    // demoViewerKey re-runs the load when the demo is switched to another person.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [canReadIncidents, repository, demoViewerKey]);
 
   useEffect(() => {
     if (!sessionResolved) return;
@@ -588,6 +607,8 @@ export function IncidentProvider({ children }: { children: React.ReactNode }) {
       trackIncident,
       profile,
       profileError,
+      isSignedIn,
+      demoPersona,
       role,
       listSitePeople,
       listProfiles,
@@ -649,6 +670,8 @@ export function IncidentProvider({ children }: { children: React.ReactNode }) {
       trackIncident,
       profile,
       profileError,
+      isSignedIn,
+      demoPersona,
       role,
       listSitePeople,
       listProfiles,

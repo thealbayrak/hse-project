@@ -126,4 +126,7 @@ export interface IncidentRepository {
   createStaff(input: CreateStaffInput): Promise<CreateStaffResult>;
 
   subscribeToIncidents?(handler: RealtimeIncidentHandler): () => void;
+
+  /** Demo only: shows the data as this person would see it (their company, places and role). */
+  setDemoViewer?(viewer: Profile | null): void;
 }

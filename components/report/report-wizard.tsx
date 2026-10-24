@@ -112,7 +112,6 @@ export function ReportWizard({ aiEnabled = false }: { aiEnabled?: boolean }) {
   const reportKey = searchParams.get("k");
   const { enabled: authEnabled, session } = useAuth();
   // Signed-in people of the company (and the demo) report without a QR code; everyone else needs the current one.
-  const trusted = !authEnabled || Boolean(session);
   const { locale, t } = useLanguage();
   const {
     sites,
@@ -126,7 +125,9 @@ export function ReportWizard({ aiEnabled = false }: { aiEnabled?: boolean }) {
     listSubcontractors,
     requestMembership,
     resolveReportKey,
+    isSignedIn,
   } = useIncidentStore();
+  const trusted = isSignedIn;
   const [resolvedKey, setResolvedKey] = useState<{ key: string; target: ReportTarget | null } | null>(null);
   const [honey, setHoney] = useState("");
   const [humanToken, setHumanToken] = useState<string | null>(null);

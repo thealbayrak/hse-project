@@ -19,6 +19,7 @@ import {
 } from "lucide-react";
 import { AssistantPanel } from "@/components/ai/assistant-panel";
 import { useBrand } from "@/components/brand-context";
+import { DemoSwitcher } from "@/components/demo-switcher";
 import { LanguageToggle } from "@/components/LanguageToggle";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { cn } from "@/lib/utils";
@@ -55,10 +56,10 @@ export function AppShell({
   const router = useRouter();
   const { t } = useLanguage();
   const { enabled: authEnabled, session, email, signOut } = useAuth();
-  const { pendingCount, syncQueuedReports, role } = useIncidentStore();
+  const { pendingCount, syncQueuedReports, role, isSignedIn } = useIncidentStore();
   const brand = useBrand();
   const heading = pageHeading(pathname, t);
-  const signedIn = !authEnabled || Boolean(session);
+  const signedIn = isSignedIn;
   // A worker who came in through a QR code sees the report form (or the tracking page) and nothing else.
   const sealed = !signedIn && (pathname.startsWith("/report") || pathname.startsWith("/track"));
   // Signed-in roles see their own pages; everyone else sees the public tabs.
@@ -154,6 +155,7 @@ export function AppShell({
         {children}
       </main>
 
+      {!authEnabled && <DemoSwitcher />}
       {!pathname.startsWith("/report") && !pathname.startsWith("/track") && !pathname.startsWith("/login") && <AssistantPanel />}
 
       {mobileNav.length > 0 && (

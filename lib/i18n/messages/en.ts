@@ -963,6 +963,13 @@ export const en = {
     outsideAreaHint: "Sent from a place away from the site",
     outsideAreaDetail: "This report was sent from about {m} m away from the site. Check it before you rate it.",
   },
+  demo: {
+    viewAs: "View as",
+    hint: "Demo: there are no logins here. Pick who you want to see the app as; each person only sees their own company.",
+    worker: "Worker (QR code)",
+    workerHint: "No account; only the report form",
+    allCompanies: "All companies",
+  },
 } as const;
 
 export type Messages = typeof en;

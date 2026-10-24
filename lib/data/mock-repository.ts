@@ -1,5 +1,7 @@
 import { computeMetrics, sortIncidents } from "@/lib/data/metrics";
 import type { IncidentRepository } from "@/lib/data/repository";
+import { buildDemoIncidents, buildDemoTasks } from "@/lib/demo/data";
+import { DEMO_PEOPLE } from "@/lib/demo/people";
 import { SEED_INCIDENTS } from "@/lib/data/seed-incidents";
 import { SEED_SAFETY_WALKS } from "@/lib/data/seed-walks";
 import { findLocation, findSite, ORGANIZATIONS, SITES } from "@/lib/data/sites";
@@ -35,7 +37,7 @@ function withPlaceNames(incident: Incident): Incident {
 }
 
 function cloneIncidents(): Incident[] {
-  return structuredClone(SEED_INCIDENTS);
+  return [...structuredClone(SEED_INCIDENTS), ...buildDemoIncidents()];
 }
 
 export function nextReference(incidents: Pick<Incident, "reference">[], year = new Date().getFullYear()): string {
@@ -96,16 +98,8 @@ export function createMockRepository(): IncidentRepository {
     { id: "contact-anna", name: "Anna Bergström", email: "anna.bergstrom@example.se", role: "HSE Manager" },
     { id: "contact-erik", name: "Erik Lindqvist", email: "erik.lindqvist@example.se", role: "Safety Officer" },
   ];
-  let profiles: Profile[] = [
-    { id: "p-anna", fullName: "Anna Bergström", email: "anna.bergstrom@example.se", phone: null, role: "hse_manager", organizationId: "org-nordic", siteId: null, siteName: null, employeeNo: "1001", reportsTo: null, reportsToName: null, language: "sv", active: true },
-    { id: "p-erik", fullName: "Erik Lindqvist", email: "erik.lindqvist@example.se", phone: null, role: "safety_officer", organizationId: "org-nordic", siteId: "site-kvillebacken", siteName: "Kvillebäcken Construction Site", employeeNo: "1002", reportsTo: "p-anna", reportsToName: "Anna Bergström", language: "sv", active: true },
-    { id: "p-johan", fullName: "Johan Ek", email: "johan.ek@example.se", phone: null, role: "foreman", organizationId: "org-nordic", siteId: "site-kvillebacken", siteName: "Kvillebäcken Construction Site", employeeNo: "2001", reportsTo: "p-erik", reportsToName: "Erik Lindqvist", language: "sv", active: true },
-    { id: "p-ali", fullName: "Ali Yılmaz", email: null, phone: null, role: "worker", organizationId: "org-nordic", siteId: "site-kvillebacken", siteName: "Kvillebäcken Construction Site", employeeNo: "3001", reportsTo: "p-johan", reportsToName: "Johan Ek", language: "tr", active: true },
-    { id: "p-piotr", fullName: "Piotr Nowak", email: null, phone: null, role: "worker", organizationId: "org-nordic", siteId: "site-kvillebacken", siteName: "Kvillebäcken Construction Site", employeeNo: "3002", reportsTo: "p-johan", reportsToName: "Johan Ek", language: "pl", active: true },
-  ];
-  let tasks: Task[] = [
-    { id: "task-1", title: "Zone 3 scaffold tag renewal", description: "Arrange re-inspection and new tag before Monday.", priority: "high", status: "open", assigneeId: "p-johan", assigneeName: "Johan Ek", createdById: "p-erik", createdByName: "Erik Lindqvist", siteId: "site-kvillebacken", incidentId: null, incidentReference: null, dueDate: "2026-10-20", feedback: "", completedAt: null, createdAt: "2026-10-15T08:00:00.000Z", updatedAt: null },
-  ];
+  let profiles: Profile[] = structuredClone(DEMO_PEOPLE);
+  let tasks: Task[] = buildDemoTasks();
   const profileName = (id: string | null) => profiles.find((p) => p.id === id)?.fullName ?? null;
   let templates: ChecklistTemplate[] = [
     {
@@ -126,17 +120,48 @@ export function createMockRepository(): IncidentRepository {
   ];
   let audits: Audit[] = [];
 
+  // Demo viewer: who the data is shown to. null (the default, and in tests) shows everything.
+  let viewer: Profile | null = null;
+  const MANAGER_ROLES = ["hse_manager", "admin", "super_admin"];
+  const isOwner = () => !viewer || viewer.role === "super_admin";
+  const orgOfSite = (siteId: string | null | undefined) => (siteId ? (siteOf(siteId)?.organizationId ?? null) : null);
+  const seesOrg = (organizationId: string | null | undefined) => isOwner() || (!!organizationId && organizationId === viewer?.organizationId);
+  const seesSite = (siteId: string | null | undefined) =>
+    isOwner() ||
+    MANAGER_ROLES.includes(viewer?.role ?? "") ||
+    viewer?.allSites !== false ||
+    (!!siteId && (viewer?.siteIds ?? []).includes(siteId));
+  const canSeeIncident = (incident: Incident) => {
+    if (isOwner()) return true;
+    if (!seesOrg(incident.organizationId ?? orgOfSite(incident.siteId))) return false;
+    if (viewer?.role === "worker") return false;
+    if (viewer?.role === "action_owner") return incident.capa?.assigneeId === viewer.id;
+    return seesSite(incident.siteId);
+  };
+  const canSeeTask = (task: Task) => {
+    if (isOwner()) return true;
+    if (!seesOrg(orgOfSite(task.siteId))) return false;
+    if (viewer?.role === "action_owner" || viewer?.role === "worker") return task.assigneeId === viewer.id;
+    return seesSite(task.siteId);
+  };
+
   return {
+    setDemoViewer(next) {
+      viewer = next ? structuredClone(next) : null;
+    },
+
     async listSites() {
-      return structuredClone(sites);
+      // Places are public for the QR form; staff only see their own company's and the ones they are given.
+      const visible = viewer?.role === "worker" ? sites : sites.filter((site) => seesOrg(site.organizationId) && seesSite(site.id));
+      return structuredClone(visible);
     },
 
     async listIncidents() {
-      return sortIncidents(structuredClone(incidents)).map(withPlaceNames);
+      return sortIncidents(structuredClone(incidents.filter(canSeeIncident))).map(withPlaceNames);
     },
 
     async getIncident(id) {
-      const found = incidents.find((incident) => incident.id === id);
+      const found = incidents.find((incident) => incident.id === id && canSeeIncident(incident));
       return found ? withPlaceNames(structuredClone(found)) : null;
     },
 
@@ -268,7 +293,7 @@ export function createMockRepository(): IncidentRepository {
     },
 
     async listProfiles() {
-      return structuredClone(profiles);
+      return structuredClone(profiles.filter((person) => isOwner() || (person.organizationId !== null && seesOrg(person.organizationId))));
     },
 
     async getProfileByEmail(email) {
@@ -330,7 +355,7 @@ export function createMockRepository(): IncidentRepository {
     },
 
     async listTasks() {
-      return structuredClone(tasks);
+      return structuredClone(tasks.filter(canSeeTask));
     },
 
     async createTask(input, createdById) {
@@ -504,7 +529,7 @@ export function createMockRepository(): IncidentRepository {
     },
 
     async listOrganizations() {
-      return structuredClone(organizations);
+      return structuredClone(organizations.filter((item) => seesOrg(item.id)));
     },
 
     async resolveReportKey(key) {
@@ -526,9 +551,9 @@ export function createMockRepository(): IncidentRepository {
     async listReportKeys() {
       const createdAt = new Date().toISOString();
       return [
-        ...organizations.map((item) => ({ id: `key-${item.id}`, organizationId: item.id, siteId: null, key: demoKey(item.id), createdAt })),
+        ...organizations.filter((item) => seesOrg(item.id)).map((item) => ({ id: `key-${item.id}`, organizationId: item.id, siteId: null, key: demoKey(item.id), createdAt })),
         ...sites
-          .filter((item) => item.organizationId)
+          .filter((item) => item.organizationId && seesOrg(item.organizationId))
           .map((item) => ({ id: `key-${item.id}`, organizationId: item.organizationId as string, siteId: item.id, key: demoKey(item.id), createdAt })),
       ];
     },
@@ -668,7 +693,7 @@ export function createMockRepository(): IncidentRepository {
     },
 
     async listMembershipRequests() {
-      return structuredClone(membershipRequests.filter((item) => item.status === "pending"));
+      return structuredClone(membershipRequests.filter((item) => item.status === "pending" && seesOrg(item.organizationId)));
     },
 
     async decideMembership(id, status) {

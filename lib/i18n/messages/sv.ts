@@ -965,4 +965,11 @@ export const sv: MessageTable = {
     outsideAreaHint: "Skickad från en plats en bit från arbetsplatsen",
     outsideAreaDetail: "Anmälan skickades från ungefär {m} m från arbetsplatsen. Kontrollera den innan du bedömer den.",
   },
+  demo: {
+    viewAs: "Visa som",
+    hint: "Demo: här finns inga inloggningar. Välj vem du vill se appen som; var och en ser bara sitt eget företag.",
+    worker: "Arbetare (QR-kod)",
+    workerHint: "Inget konto; bara anmälningsformuläret",
+    allCompanies: "Alla företag",
+  },
 };
