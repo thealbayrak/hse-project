@@ -180,14 +180,23 @@ describe("assignment e-mail", () => {
 
   it("names the report, the due date and the sender in the recipient's language, and escapes HTML", () => {
     const en = buildAssignmentEmail({ ...base, language: "en" });
-    expect(en.subject).toBe("Action assigned to you · SS-2026-0042");
+    expect(en.subject).toBe("You have a new assigned hazard · SS-2026-0042");
     expect(en.text).toContain("Erik assigned this report to you");
     expect(en.text).toContain("Fix before Friday");
     expect(en.html).toContain("Loose &lt;b&gt;scaffold&lt;/b&gt; board");
     expect(en.html).not.toContain("<b>scaffold</b>");
     const sv = buildAssignmentEmail({ ...base, language: "sv" });
-    expect(sv.subject).toContain("Åtgärd tilldelad dig");
+    expect(sv.subject).toContain("ny tilldelad risk");
     expect(sv.text).toContain("november");
+  });
+
+  it("words the e-mail for the investigator and the follow-up person differently", () => {
+    const investigator = buildAssignmentEmail({ ...base, language: "en", role: "investigator" });
+    expect(investigator.subject).toBe("You are asked to investigate · SS-2026-0042");
+    expect(investigator.text).toContain("root cause");
+    const followUp = buildAssignmentEmail({ ...base, language: "en", role: "follow_up" });
+    expect(followUp.subject).toContain("waiting for your check");
+    expect(buildAssignmentEmail({ ...base, language: "tr", role: "investigator" }).subject).toContain("Araştırmanız");
   });
 });
 

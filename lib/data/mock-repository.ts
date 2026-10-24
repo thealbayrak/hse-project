@@ -1,12 +1,14 @@
 import { computeMetrics, sortIncidents } from "@/lib/data/metrics";
 import type { IncidentRepository } from "@/lib/data/repository";
-import { buildDemoIncidents, buildDemoTasks } from "@/lib/demo/data";
+import { buildDemoIncidents, buildDemoTasks, DEMO_AREA_RESPONSIBLES, emptyAssignment } from "@/lib/demo/data";
 import { DEMO_PEOPLE } from "@/lib/demo/people";
 import { SEED_INCIDENTS } from "@/lib/data/seed-incidents";
 import { SEED_SAFETY_WALKS } from "@/lib/data/seed-walks";
 import { findLocation, findSite, ORGANIZATIONS, SITES } from "@/lib/data/sites";
 import { toSafetyWalkSummary } from "@/lib/supabase/mappers";
 import type {
+  AreaResponsible,
+  Assignment,
   Audit,
   AuditItemResult,
   MembershipRequest,
@@ -119,6 +121,7 @@ export function createMockRepository(): IncidentRepository {
     },
   ];
   let audits: Audit[] = [];
+  let areaResponsibles: AreaResponsible[] = structuredClone(DEMO_AREA_RESPONSIBLES);
 
   // Demo viewer: who the data is shown to. null (the default, and in tests) shows everything.
   let viewer: Profile | null = null;
@@ -131,19 +134,40 @@ export function createMockRepository(): IncidentRepository {
     MANAGER_ROLES.includes(viewer?.role ?? "") ||
     viewer?.allSites !== false ||
     (!!siteId && (viewer?.siteIds ?? []).includes(siteId));
+  const INVOLVED_ROLES = ["area_responsible", "action_owner", "investigator", "follow_up"];
+  const placeIds = (incident: Incident) => (incident.locationIds?.length ? incident.locationIds : [incident.locationId]);
+  // Area responsibles see their areas; the other three roles see what they are named on.
+  const involved = (incident: Incident) => {
+    if (!viewer) return false;
+    const a = incident.assignment;
+    if (incident.capa?.assigneeId === viewer.id) return true;
+    if (a && [a.actionOwnerId, a.investigatorId, a.followUpId].includes(viewer.id)) return true;
+    return (
+      viewer.role === "area_responsible" &&
+      areaResponsibles.some((area) => area.profileId === viewer?.id && placeIds(incident).includes(area.locationId))
+    );
+  };
   const canSeeIncident = (incident: Incident) => {
     if (isOwner()) return true;
     if (!seesOrg(incident.organizationId ?? orgOfSite(incident.siteId))) return false;
     if (viewer?.role === "worker") return false;
-    if (viewer?.role === "action_owner") return incident.capa?.assigneeId === viewer.id;
+    if (INVOLVED_ROLES.includes(viewer?.role ?? "")) return involved(incident);
     return seesSite(incident.siteId);
   };
   const canSeeTask = (task: Task) => {
     if (isOwner()) return true;
     if (!seesOrg(orgOfSite(task.siteId))) return false;
-    if (viewer?.role === "action_owner" || viewer?.role === "worker") return task.assigneeId === viewer.id;
+    if (INVOLVED_ROLES.includes(viewer?.role ?? "") || viewer?.role === "worker") return task.assigneeId === viewer?.id;
     return seesSite(task.siteId);
   };
+  const nameOf = (id: string | null) => (id ? (profiles.find((person) => person.id === id)?.fullName ?? null) : null);
+  const now = () => new Date().toISOString();
+  function replaceIncident(incidentId: string, change: (current: Incident) => Incident) {
+    const index = incidents.findIndex((incident) => incident.id === incidentId);
+    if (index === -1) throw new Error(`Incident ${incidentId} not found`);
+    incidents[index] = change(incidents[index]);
+    return withPlaceNames(structuredClone(incidents[index]));
+  }
 
   return {
     setDemoViewer(next) {
@@ -233,8 +257,103 @@ export function createMockRepository(): IncidentRepository {
           updatedAt: new Date().toISOString(),
         },
       };
+      const before = incidents[index];
+      const assignment: Assignment = { ...(before.assignment ?? emptyAssignment()) };
+      assignment.actionOwnerId = capa.assigneeId || null;
+      assignment.actionOwnerName = capa.assigneeName || null;
+      if (capa.status === "resolved" && before.capa?.status !== "resolved" && assignment.followUpId) {
+        assignment.followUpStatus = "pending";
+        assignment.verifiedAt = null;
+      }
+      updated.assignment = assignment;
       incidents[index] = updated;
       return withPlaceNames(structuredClone(updated));
+    },
+
+    async assignIncident(input) {
+      return replaceIncident(input.incidentId, (current) => {
+        const before = current.assignment ?? emptyAssignment();
+        const manager = !viewer || MANAGER_ROLES.includes(viewer.role);
+        if (before.managerLocked && !manager) throw new Error("a manager has set these assignments");
+        const area = areaResponsibles.find((item) => placeIds(current).includes(item.locationId))?.profileId ?? null;
+        const assignment: Assignment = {
+          ...before,
+          areaResponsibleId: area,
+          areaResponsibleName: nameOf(area),
+          actionOwnerId: input.actionOwnerId,
+          actionOwnerName: nameOf(input.actionOwnerId),
+          investigatorId: input.investigatorId,
+          investigatorName: nameOf(input.investigatorId),
+          followUpId: input.followUpId,
+          followUpName: nameOf(input.followUpId),
+          investigationRequired: input.investigationRequired,
+          investigationDueDate: input.investigationDueDate,
+          managerLocked: before.managerLocked || manager,
+        };
+        const status = input.actionOwnerId && current.status === "open" ? "in-progress" : current.status;
+        const capa =
+          input.actionOwnerId || current.capa
+            ? {
+                assigneeId: input.actionOwnerId ?? "",
+                assigneeName: nameOf(input.actionOwnerId) ?? "",
+                dueDate: input.actionDueDate ?? current.capa?.dueDate ?? "",
+                status: status === "open" ? ("open" as const) : (current.capa?.status ?? status),
+                notes: current.capa?.notes ?? "",
+                updatedAt: now(),
+              }
+            : null;
+        return { ...current, status, capa, assignment };
+      });
+    },
+
+    async saveInvestigation(input) {
+      return replaceIncident(input.incidentId, (current) => {
+        if (!current.assignment) throw new Error("not allowed");
+        return {
+          ...current,
+          assignment: {
+            ...current.assignment,
+            investigationStatus: input.status,
+            rootCause: input.rootCause.trim() || null,
+            investigationNotes: input.notes.trim() || null,
+            investigationCompletedAt: input.status === "done" ? now() : null,
+          },
+        };
+      });
+    },
+
+    async verifyFollowUp(input) {
+      return replaceIncident(input.incidentId, (current) => {
+        if (!current.assignment) throw new Error("not allowed");
+        if (!input.approved && input.note.trim().length < 3) throw new Error("say what is missing when you send it back");
+        return {
+          ...current,
+          status: input.approved ? current.status : "in-progress",
+          capa: current.capa && !input.approved ? { ...current.capa, status: "in-progress", updatedAt: now() } : current.capa,
+          assignment: {
+            ...current.assignment,
+            followUpStatus: input.approved ? "approved" : "rejected",
+            followUpNote: input.note.trim() || null,
+            verifiedAt: now(),
+          },
+        };
+      });
+    },
+
+    async addResolutionProof(incidentId, files) {
+      return replaceIncident(incidentId, (current) => ({
+        ...current,
+        proofUrls: [...(current.proofUrls ?? []), ...files.map((file) => objectUrl(file)).filter((url): url is string => Boolean(url))],
+      }));
+    },
+
+    async listAreaResponsibles() {
+      return structuredClone(areaResponsibles);
+    },
+
+    async setAreaResponsible(locationId, profileId) {
+      areaResponsibles = areaResponsibles.filter((item) => item.locationId !== locationId);
+      if (profileId) areaResponsibles.push({ locationId, profileId });
     },
 
     async getMetrics() {

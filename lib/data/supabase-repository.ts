@@ -32,6 +32,9 @@ import {
   type TaskQueryRow,
 } from "@/lib/supabase/mappers";
 import type {
+  AreaResponsible,
+  AssignIncidentInput,
+  SaveInvestigationInput,
   Audit,
   AuditItemResult,
   CreateOrganizationInput,
@@ -84,6 +87,7 @@ const INCIDENT_SELECT = `
   sites ( id, name, city ),
   site_locations ( id, name ),
   actions ( * ),
+  assignments ( * ),
   incident_attachments ( * )
 `;
 
@@ -263,6 +267,81 @@ export class SupabaseIncidentRepository implements IncidentRepository {
     const incident = await this.getIncident(incidentId);
     if (!incident) throw new Error("CAPA was saved but the incident could not be reloaded.");
     return incident;
+  }
+
+  private async reload(incidentId: string): Promise<Incident> {
+    const incident = await this.getIncident(incidentId);
+    if (!incident) throw new Error("The change was saved but the report could not be reloaded.");
+    return incident;
+  }
+
+  async assignIncident(input: AssignIncidentInput): Promise<Incident> {
+    const result = await this.client.rpc("assign_incident", {
+      p_incident_id: input.incidentId,
+      p_action_owner_id: input.actionOwnerId,
+      p_investigator_id: input.investigatorId,
+      p_follow_up_id: input.followUpId,
+      p_investigation_required: input.investigationRequired,
+      p_investigation_due_date: input.investigationDueDate || null,
+      p_action_due_date: input.actionDueDate || null,
+    });
+    if (result.error) throw result.error;
+    return this.reload(input.incidentId);
+  }
+
+  async saveInvestigation(input: SaveInvestigationInput): Promise<Incident> {
+    const result = await this.client.rpc("save_investigation", {
+      p_incident_id: input.incidentId,
+      p_status: input.status,
+      p_root_cause: input.rootCause,
+      p_notes: input.notes,
+    });
+    if (result.error) throw result.error;
+    return this.reload(input.incidentId);
+  }
+
+  async verifyFollowUp(input: { incidentId: string; approved: boolean; note: string }): Promise<Incident> {
+    const result = await this.client.rpc("verify_followup", {
+      p_incident_id: input.incidentId,
+      p_approved: input.approved,
+      p_note: input.note,
+    });
+    if (result.error) throw result.error;
+    return this.reload(input.incidentId);
+  }
+
+  async addResolutionProof(incidentId: string, files: File[]): Promise<Incident> {
+    const stamp = Date.now();
+    for (const [index, file] of files.entries()) {
+      const mime = file.type || "image/jpeg";
+      const path = `incidents/${incidentId}/proof-${stamp}-${index}-${sanitizeFileName(file.name || `proof-${index + 1}.jpg`)}`;
+      await this.upload(path, file, mime);
+      const saved = await this.client
+        .from("incident_attachments")
+        .insert({ incident_id: incidentId, storage_path: path, kind: "proof", mime_type: mime });
+      if (saved.error) throw saved.error;
+    }
+    return this.reload(incidentId);
+  }
+
+  async listAreaResponsibles(): Promise<AreaResponsible[]> {
+    const result = await this.client.from("area_responsibles").select("*");
+    if (result.error) throw result.error;
+    return (result.data ?? []).map((row) => ({ locationId: row.location_id, profileId: row.profile_id }));
+  }
+
+  async setAreaResponsible(locationId: string, profileId: string | null): Promise<void> {
+    if (!profileId) {
+      const removed = await this.client.from("area_responsibles").delete().eq("location_id", locationId);
+      if (removed.error) throw removed.error;
+      return;
+    }
+    const sites = await this.listSites();
+    const organizationId = sites.find((site) => site.locations.some((location) => location.id === locationId))?.organizationId ?? null;
+    const saved = await this.client
+      .from("area_responsibles")
+      .upsert({ location_id: locationId, organization_id: organizationId, profile_id: profileId }, { onConflict: "location_id" });
+    if (saved.error) throw saved.error;
   }
 
   async getMetrics() {

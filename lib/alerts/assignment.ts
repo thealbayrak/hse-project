@@ -8,6 +8,8 @@ export type AssignmentResult = "sent" | "no-email" | "skipped" | "failed";
 export async function notifyAssignment(input: {
   incidentId: string;
   assigneeId: string;
+  /** What the person is asked to do; decides the wording of the e-mail. Defaults to action owner. */
+  role?: "action_owner" | "investigator" | "follow_up";
   dueDate: string | null;
   note: string | null;
   language: string;

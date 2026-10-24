@@ -4,7 +4,7 @@ import { slugFromHost } from "@/lib/qr/urls";
 import { getSupabaseEnv, isSupabaseConfigured } from "@/lib/supabase/env";
 
 /** Routes only signed-in staff may open. Field reporting (/report) and /track stay open. */
-const PROTECTED_PREFIXES = ["/start", "/dashboard", "/board", "/skyddsrond", "/reports", "/tasks", "/people", "/audits", "/projects", "/settings"];
+const PROTECTED_PREFIXES = ["/start", "/admin", "/super-admin", "/dashboard", "/board", "/skyddsrond", "/reports", "/tasks", "/people", "/audits", "/projects", "/settings"];
 
 function isProtected(pathname: string) {
   return PROTECTED_PREFIXES.some((prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`));

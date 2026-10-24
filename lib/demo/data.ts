@@ -1,4 +1,4 @@
-import type { CapaAction, Incident, Task } from "@/lib/types";
+import type { AreaResponsible, Assignment, CapaAction, Incident, Task } from "@/lib/types";
 
 const DAY = 86_400_000;
 
@@ -31,6 +31,39 @@ function capa(
     updatedAt: ago(now, doneAfterDays !== undefined ? createdDaysAgo - doneAfterDays : Math.max(0, createdDaysAgo - 1), 14),
   };
 }
+
+export function emptyAssignment(): Assignment {
+  return {
+    areaResponsibleId: null,
+    areaResponsibleName: null,
+    actionOwnerId: null,
+    actionOwnerName: null,
+    investigatorId: null,
+    investigatorName: null,
+    followUpId: null,
+    followUpName: null,
+    investigationRequired: false,
+    investigationDueDate: null,
+    investigationStatus: "open",
+    rootCause: null,
+    investigationNotes: null,
+    investigationCompletedAt: null,
+    followUpStatus: null,
+    followUpNote: null,
+    verifiedAt: null,
+    managerLocked: false,
+  };
+}
+
+/** Which person is responsible for which area in the demo places. */
+export const DEMO_AREA_RESPONSIBLES: AreaResponsible[] = [
+  { locationId: "loc-zone-3", profileId: "p-karin" },
+  { locationId: "loc-roof-4", profileId: "p-karin" },
+  { locationId: "loc-ground", profileId: "p-karin" },
+  { locationId: "loc-line-b", profileId: "p-olle" },
+  { locationId: "loc-loading-a", profileId: "p-olle" },
+  { locationId: "loc-paint", profileId: "p-olle" },
+];
 
 type Draft = Omit<Incident, "mediaUrls" | "source" | "status" | "capa"> & Partial<Pick<Incident, "status" | "capa">>;
 
@@ -84,6 +117,13 @@ export function buildDemoIncidents(now = Date.now()): Incident[] {
       status: "in-progress",
       createdAt: ago(now, 3, 10),
       capa: capa(now, "p-nils", "Nils Berg", "in-progress", 3, 2, "Alarm replaced on truck 14. Banksman required until all trucks are checked."),
+      assignment: {
+        ...emptyAssignment(),
+        areaResponsibleId: "p-olle",
+        areaResponsibleName: "Olle Strand",
+        actionOwnerId: "p-nils",
+        actionOwnerName: "Nils Berg",
+      },
     }),
     incident({
       id: "demo-0203",
@@ -142,6 +182,14 @@ export function buildDemoIncidents(now = Date.now()): Incident[] {
       status: "in-progress",
       createdAt: ago(now, 5, 7),
       capa: capa(now, "p-lars", "Lars Nyberg", "in-progress", 5, 1, "Guard edges to be rounded off on all machines of this type."),
+      assignment: {
+        ...emptyAssignment(),
+        actionOwnerId: "p-lars",
+        actionOwnerName: "Lars Nyberg",
+        investigationRequired: true,
+        investigationDueDate: dateOnly(now, 3),
+        managerLocked: true,
+      },
     }),
     // Nordic Siteworks AB: Kvillebäcken
     incident({
@@ -182,6 +230,21 @@ export function buildDemoIncidents(now = Date.now()): Incident[] {
       status: "in-progress",
       createdAt: ago(now, 2, 11),
       capa: capa(now, "p-maria", "Maria Holm", "in-progress", 2, 1, "Wheel chocks ordered. Roof storage plan to be updated."),
+      assignment: {
+        ...emptyAssignment(),
+        areaResponsibleId: "p-karin",
+        areaResponsibleName: "Karin Dahl",
+        actionOwnerId: "p-maria",
+        actionOwnerName: "Maria Holm",
+        investigatorId: "p-henrik",
+        investigatorName: "Henrik Sund",
+        followUpId: "p-ingrid",
+        followUpName: "Ingrid Moberg",
+        investigationRequired: true,
+        investigationDueDate: dateOnly(now, 4),
+        investigationStatus: "in-progress",
+        rootCause: "The wedge was a loose offcut instead of a proper wheel chock; storage on the roof edge was not planned.",
+      },
     }),
     incident({
       id: "demo-0208",
@@ -219,6 +282,14 @@ export function buildDemoIncidents(now = Date.now()): Incident[] {
       reporterName: "Piotr Nowak",
       reporterProfileId: "p-piotr",
       createdAt: ago(now, 1, 9),
+      assignment: {
+        ...emptyAssignment(),
+        investigatorId: "p-henrik",
+        investigatorName: "Henrik Sund",
+        investigationRequired: true,
+        investigationDueDate: dateOnly(now, 3),
+        managerLocked: true,
+      },
     }),
     incident({
       id: "demo-0210",
@@ -239,6 +310,16 @@ export function buildDemoIncidents(now = Date.now()): Incident[] {
       status: "resolved",
       createdAt: ago(now, 14, 12),
       capa: capa(now, "p-johan", "Johan Ek", "resolved", 14, -11, "Collection bin placed at the gate; checked daily.", 2),
+      assignment: {
+        ...emptyAssignment(),
+        areaResponsibleId: "p-karin",
+        areaResponsibleName: "Karin Dahl",
+        actionOwnerId: "p-johan",
+        actionOwnerName: "Johan Ek",
+        followUpId: "p-ingrid",
+        followUpName: "Ingrid Moberg",
+        followUpStatus: "pending",
+      },
     }),
     // Sydkomponent AB: Malmö
     incident({

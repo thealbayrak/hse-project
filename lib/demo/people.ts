@@ -61,6 +61,33 @@ export const DEMO_PEOPLE: Profile[] = [
     reportsToName: "Anna Bergström",
     language: "sv",
   }),
+  person("p-karin", "Karin Dahl", "area_responsible", "org-nordic", {
+    email: "karin.dahl@example.se",
+    siteId: "site-kvillebacken",
+    siteName: "Kvillebäcken Construction Site",
+    employeeNo: "2003",
+    reportsTo: "p-anna",
+    reportsToName: "Anna Bergström",
+    language: "sv",
+  }),
+  person("p-henrik", "Henrik Sund", "investigator", "org-nordic", {
+    email: "henrik.sund@example.se",
+    siteId: "site-kvillebacken",
+    siteName: "Kvillebäcken Construction Site",
+    employeeNo: "2004",
+    reportsTo: "p-anna",
+    reportsToName: "Anna Bergström",
+    language: "sv",
+  }),
+  person("p-ingrid", "Ingrid Moberg", "follow_up", "org-nordic", {
+    email: "ingrid.moberg@example.se",
+    siteId: "site-kvillebacken",
+    siteName: "Kvillebäcken Construction Site",
+    employeeNo: "2005",
+    reportsTo: "p-anna",
+    reportsToName: "Anna Bergström",
+    language: "sv",
+  }),
   person("p-ali", "Ali Yılmaz", "worker", "org-nordic", {
     email: null,
     siteId: "site-kvillebacken",
@@ -88,6 +115,16 @@ export const DEMO_PEOPLE: Profile[] = [
     allSites: false,
     siteIds: ["site-torslanda"],
     employeeNo: "4002",
+    reportsTo: "p-lars",
+    reportsToName: "Lars Nyberg",
+    language: "sv",
+  }),
+  person("p-olle", "Olle Strand", "area_responsible", "org-volvo", {
+    siteId: "site-torslanda",
+    siteName: "Volvo Torslanda Plant",
+    allSites: false,
+    siteIds: ["site-torslanda"],
+    employeeNo: "4004",
     reportsTo: "p-lars",
     reportsToName: "Lars Nyberg",
     language: "sv",
@@ -133,7 +170,20 @@ export const DEMO_PEOPLE: Profile[] = [
 export const DEMO_WORKER_VIEWER: Profile = person("worker", "Worker", "worker", null, { email: null });
 
 /** One entry per switcher choice; "worker" is not a person but the QR-code form seen without an account. */
-export const DEMO_PERSONA_IDS = ["p-owner", "p-anna", "p-erik", "p-maria", "p-lars", "p-eva", "p-nils", "worker"] as const;
+export const DEMO_PERSONA_IDS = [
+  "p-owner",
+  "p-anna",
+  "p-karin",
+  "p-maria",
+  "p-henrik",
+  "p-ingrid",
+  "p-erik",
+  "p-lars",
+  "p-olle",
+  "p-eva",
+  "p-nils",
+  "worker",
+] as const;
 export type DemoPersonaId = (typeof DEMO_PERSONA_IDS)[number];
 
 export function demoProfile(id: string): Profile | null {

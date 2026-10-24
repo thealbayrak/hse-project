@@ -29,8 +29,11 @@ function formatDue(value: string | null, language: Locale) {
   return new Intl.DateTimeFormat(tag, { dateStyle: "long", timeZone: "UTC" }).format(new Date(`${value}T12:00:00Z`));
 }
 
-/** The e-mail an action owner gets when a report is assigned to them. */
+export type AssignmentRole = "action_owner" | "investigator" | "follow_up";
+
+/** The e-mail a person gets when they are put on a report: to fix it, to investigate it, or to check the fix. */
 export function buildAssignmentEmail(input: {
+  role?: AssignmentRole;
   incident: AssignedIncident;
   recipientName: string;
   assignedBy: string | null;
@@ -39,13 +42,14 @@ export function buildAssignmentEmail(input: {
   language: Locale;
   dashboardUrl: string;
 }) {
-  const { incident, recipientName, assignedBy, dueDate, note, language, dashboardUrl } = input;
+  const { incident, recipientName, assignedBy, dueDate, note, language, dashboardUrl, role = "action_owner" } = input;
   const t = (key: string, vars?: Record<string, string | number>) => translate(language, key, vars);
+  const suffix = role === "investigator" ? "Investigator" : role === "follow_up" ? "FollowUp" : "";
   const type = typeLabel(incident.type, language, incident.typeNote);
   const severity = severityLabel(incident.severity, language);
   const due = formatDue(dueDate, language);
-  const subject = t("assignment.subject", { reference: incident.reference });
-  const intro = assignedBy ? t("assignment.introBy", { by: assignedBy }) : t("assignment.intro");
+  const subject = t(`assignment.subject${suffix}`, { reference: incident.reference });
+  const intro = assignedBy ? t(`assignment.introBy${suffix}`, { by: assignedBy }) : t(`assignment.intro${suffix}`);
 
   const html = `<!DOCTYPE html>
 <html lang="${language}">
@@ -53,8 +57,8 @@ export function buildAssignmentEmail(input: {
   <body style="margin:0;padding:16px;background:#f1f5f9;font-family:Arial,Helvetica,sans-serif;">
     <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:600px;margin:0 auto;background:#ffffff;border:1px solid #e2e8f0;border-radius:12px;overflow:hidden;">
       <tr><td style="background:#0f172a;padding:18px 24px;color:#ffffff;">
-        <p style="margin:0;font-size:11px;letter-spacing:0.18em;font-weight:700;color:#fbbf24;">SITESAFETY NORDIC · ${escapeHtml(t("assignment.badge").toUpperCase())}</p>
-        <h1 style="margin:6px 0 0;font-size:20px;line-height:1.3;">${escapeHtml(t("assignment.title"))}</h1>
+        <p style="margin:0;font-size:11px;letter-spacing:0.18em;font-weight:700;color:#fbbf24;">SITESAFETY NORDIC · ${escapeHtml(t(`assignment.badge${suffix}`).toUpperCase())}</p>
+        <h1 style="margin:6px 0 0;font-size:20px;line-height:1.3;">${escapeHtml(t(`assignment.title${suffix}`))}</h1>
         <p style="margin:6px 0 0;font-size:14px;opacity:.85;">${escapeHtml(incident.siteName)} · ${escapeHtml(incident.locationName)}</p>
       </td></tr>
       <tr><td style="padding:16px 24px;font-size:14px;line-height:1.5;color:#0f172a;">

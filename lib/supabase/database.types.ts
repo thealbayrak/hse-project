@@ -266,6 +266,53 @@ export interface Database {
         Update: Partial<Database["public"]["Tables"]["report_keys"]["Insert"]>;
         Relationships: [];
       };
+      assignments: {
+        Row: {
+          incident_id: string;
+          organization_id: string | null;
+          area_responsible_id: string | null;
+          area_responsible_name: string | null;
+          action_owner_id: string | null;
+          action_owner_name: string | null;
+          investigator_id: string | null;
+          investigator_name: string | null;
+          follow_up_id: string | null;
+          follow_up_name: string | null;
+          investigation_required: boolean;
+          investigation_due_date: string | null;
+          investigation_status: string;
+          root_cause: string | null;
+          investigation_notes: string | null;
+          investigation_completed_at: string | null;
+          follow_up_status: string | null;
+          follow_up_note: string | null;
+          verified_by: string | null;
+          verified_at: string | null;
+          manager_locked: boolean;
+          assigned_by: string | null;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: Partial<Database["public"]["Tables"]["assignments"]["Row"]> & { incident_id: string };
+        Update: Partial<Database["public"]["Tables"]["assignments"]["Row"]>;
+        Relationships: [];
+      };
+      area_responsibles: {
+        Row: {
+          location_id: string;
+          organization_id: string | null;
+          profile_id: string;
+          created_at: string;
+        };
+        Insert: {
+          location_id: string;
+          organization_id?: string | null;
+          profile_id: string;
+          created_at?: string;
+        };
+        Update: Partial<Database["public"]["Tables"]["area_responsibles"]["Insert"]>;
+        Relationships: [];
+      };
       subcontractors: {
         Row: {
           id: string;
@@ -621,6 +668,26 @@ export interface Database {
         Args: { p_audit_id: string };
         Returns: number;
       };
+      assign_incident: {
+        Args: {
+          p_incident_id: string;
+          p_action_owner_id?: string | null;
+          p_investigator_id?: string | null;
+          p_follow_up_id?: string | null;
+          p_investigation_required?: boolean;
+          p_investigation_due_date?: string | null;
+          p_action_due_date?: string | null;
+        };
+        Returns: undefined;
+      };
+      save_investigation: {
+        Args: { p_incident_id: string; p_status: string; p_root_cause?: string | null; p_notes?: string | null };
+        Returns: undefined;
+      };
+      verify_followup: {
+        Args: { p_incident_id: string; p_approved: boolean; p_note?: string | null };
+        Returns: undefined;
+      };
       request_membership: {
         Args: { p_organization_id: string; p_email: string; p_name?: string | null; p_site_id?: string | null };
         Returns: string;
@@ -700,6 +767,7 @@ export interface Database {
 
 export type IncidentRow = Database["public"]["Tables"]["incidents"]["Row"];
 export type ActionRow = Database["public"]["Tables"]["actions"]["Row"];
+export type AssignmentRow = Database["public"]["Tables"]["assignments"]["Row"];
 export type AttachmentRow = Database["public"]["Tables"]["incident_attachments"]["Row"];
 export type SiteRow = Database["public"]["Tables"]["sites"]["Row"];
 export type OrganizationRow = Database["public"]["Tables"]["organizations"]["Row"];

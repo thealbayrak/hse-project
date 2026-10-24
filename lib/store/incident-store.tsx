@@ -75,6 +75,9 @@ import type {
   TrackedIncident,
   UpdateAuditInput,
   UpdateCapaInput,
+  AreaResponsible,
+  AssignIncidentInput,
+  SaveInvestigationInput,
 } from "@/lib/types";
 
 interface IncidentStoreValue {
@@ -92,6 +95,12 @@ interface IncidentStoreValue {
   pendingCount: number;
   createIncident: (input: CreateIncidentInput) => Promise<Incident>;
   updateCapa: (incidentId: string, capa: UpdateCapaInput) => Promise<Incident>;
+  assignIncident: (input: AssignIncidentInput) => Promise<Incident>;
+  saveInvestigation: (input: SaveInvestigationInput) => Promise<Incident>;
+  verifyFollowUp: (input: { incidentId: string; approved: boolean; note: string }) => Promise<Incident>;
+  addResolutionProof: (incidentId: string, files: File[]) => Promise<Incident>;
+  listAreaResponsibles: () => Promise<AreaResponsible[]>;
+  setAreaResponsible: (locationId: string, profileId: string | null) => Promise<void>;
   createSafetyWalk: (input: CreateSafetyWalkInput) => Promise<SafetyWalk>;
   trackIncident: (code: string) => Promise<TrackedIncident | null>;
   /** Profile of the signed-in person (undefined while resolving, null when not in the people list). */
@@ -448,10 +457,63 @@ export function IncidentProvider({ children }: { children: React.ReactNode }) {
           else if (result === "failed") toast.error(t("assignment.failed"));
         });
       }
+      // The action is finished: the person who checks it is asked to.
+      const followUpId = updated.assignment?.followUpId;
+      if (followUpId && capa.status === "resolved" && before?.status !== "resolved") {
+        void notifyAssignment({ incidentId, assigneeId: followUpId, role: "follow_up", dueDate: null, note: capa.notes, language: locale });
+      }
       return updated;
     },
     [refresh, repository, locale, t]
   );
+
+  const replaceInList = useCallback((updated: Incident) => {
+    setIncidents((current) => current.map((item) => (item.id === updated.id ? updated : item)));
+    return updated;
+  }, []);
+
+  const toastAssignment = useCallback(
+    (result: "sent" | "no-email" | "skipped" | "failed") => {
+      if (result === "sent") toast.success(t("assignment.sent"));
+      else if (result === "no-email") toast.message(t("assignment.noEmail"));
+      else if (result === "failed") toast.error(t("assignment.failed"));
+    },
+    [t]
+  );
+
+  // Every newly named person is told by e-mail: the action owner and the investigator now,
+  // the follow-up person when the action is finished.
+  const assignIncident = useCallback(
+    async (input: AssignIncidentInput) => {
+      const before = incidentsRef.current.find((item) => item.id === input.incidentId)?.assignment ?? null;
+      const updated = replaceInList(await repository.assignIncident(input));
+      const toTell: { id: string | null; was: string | null | undefined; role: "action_owner" | "investigator"; due: string | null }[] = [
+        { id: input.actionOwnerId, was: before?.actionOwnerId, role: "action_owner", due: input.actionDueDate },
+        { id: input.investigatorId, was: before?.investigatorId, role: "investigator", due: input.investigationDueDate },
+      ];
+      for (const item of toTell) {
+        if (!item.id || item.id === item.was) continue;
+        void notifyAssignment({ incidentId: input.incidentId, assigneeId: item.id, role: item.role, dueDate: item.due, note: null, language: locale }).then(toastAssignment);
+      }
+      return updated;
+    },
+    [repository, replaceInList, locale, toastAssignment]
+  );
+
+  const saveInvestigation = useCallback(
+    async (input: SaveInvestigationInput) => replaceInList(await repository.saveInvestigation(input)),
+    [repository, replaceInList]
+  );
+  const verifyFollowUp = useCallback(
+    async (input: { incidentId: string; approved: boolean; note: string }) => replaceInList(await repository.verifyFollowUp(input)),
+    [repository, replaceInList]
+  );
+  const addResolutionProof = useCallback(
+    async (incidentId: string, files: File[]) => replaceInList(await repository.addResolutionProof(incidentId, files)),
+    [repository, replaceInList]
+  );
+  const listAreaResponsibles = useCallback(() => repository.listAreaResponsibles(), [repository]);
+  const setAreaResponsible = useCallback((locationId: string, profileId: string | null) => repository.setAreaResponsible(locationId, profileId), [repository]);
 
   const trackIncident = useCallback((code: string) => repository.trackIncident(code), [repository]);
 
@@ -603,6 +665,12 @@ export function IncidentProvider({ children }: { children: React.ReactNode }) {
       pendingCount,
       createIncident,
       updateCapa,
+      assignIncident,
+      saveInvestigation,
+      verifyFollowUp,
+      addResolutionProof,
+      listAreaResponsibles,
+      setAreaResponsible,
       createSafetyWalk,
       trackIncident,
       profile,
@@ -666,6 +734,12 @@ export function IncidentProvider({ children }: { children: React.ReactNode }) {
       pendingCount,
       createIncident,
       updateCapa,
+      assignIncident,
+      saveInvestigation,
+      verifyFollowUp,
+      addResolutionProof,
+      listAreaResponsibles,
+      setAreaResponsible,
       createSafetyWalk,
       trackIncident,
       profile,

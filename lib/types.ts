@@ -129,6 +129,10 @@ export interface Incident {
   status: IncidentStatus;
   createdAt: string;
   capa: CapaAction | null;
+  /** Who is on this report (area responsible, action owner, investigator, follow-up) and how far they are. */
+  assignment?: Assignment | null;
+  /** Photos the action owner attached as proof that it was fixed. */
+  proofUrls?: string[];
   source?: "report" | "skyddsrond" | "audit";
   /** Set when a failed checklist item raised this non-conformity. */
   auditId?: string | null;
@@ -341,9 +345,80 @@ export interface MeetingInviteInput {
 }
 
 /** Roles decide who is told about what and which screens a person sees. */
-export type Role = "worker" | "foreman" | "action_owner" | "safety_officer" | "hse_manager" | "admin" | "super_admin";
+export type Role =
+  | "worker"
+  | "foreman"
+  | "area_responsible"
+  | "action_owner"
+  | "investigator"
+  | "follow_up"
+  | "safety_officer"
+  | "hse_manager"
+  | "admin"
+  | "super_admin";
 
-export const ROLES: Role[] = ["worker", "foreman", "action_owner", "safety_officer", "hse_manager", "admin", "super_admin"];
+export const ROLES: Role[] = [
+  "worker",
+  "foreman",
+  "area_responsible",
+  "action_owner",
+  "investigator",
+  "follow_up",
+  "safety_officer",
+  "hse_manager",
+  "admin",
+  "super_admin",
+];
+
+export type InvestigationStatus = "open" | "in-progress" | "done";
+export type FollowUpStatus = "pending" | "approved" | "rejected";
+
+/** The people on one report and how far the investigation and the check of the fix have come. */
+export interface Assignment {
+  areaResponsibleId: string | null;
+  areaResponsibleName: string | null;
+  actionOwnerId: string | null;
+  actionOwnerName: string | null;
+  investigatorId: string | null;
+  investigatorName: string | null;
+  followUpId: string | null;
+  followUpName: string | null;
+  investigationRequired: boolean;
+  investigationDueDate: string | null;
+  investigationStatus: InvestigationStatus;
+  rootCause: string | null;
+  investigationNotes: string | null;
+  investigationCompletedAt: string | null;
+  followUpStatus: FollowUpStatus | null;
+  followUpNote: string | null;
+  verifiedAt: string | null;
+  /** True once a manager has set the people: an area responsible can no longer change them. */
+  managerLocked: boolean;
+}
+
+export interface AssignIncidentInput {
+  incidentId: string;
+  actionOwnerId: string | null;
+  investigatorId: string | null;
+  followUpId: string | null;
+  investigationRequired: boolean;
+  investigationDueDate: string | null;
+  /** Due date of the repair; kept on the action. */
+  actionDueDate: string | null;
+}
+
+export interface SaveInvestigationInput {
+  incidentId: string;
+  status: InvestigationStatus;
+  rootCause: string;
+  notes: string;
+}
+
+/** Which person is responsible for which area of a place. */
+export interface AreaResponsible {
+  locationId: string;
+  profileId: string;
+}
 
 export interface Profile {
   id: string;

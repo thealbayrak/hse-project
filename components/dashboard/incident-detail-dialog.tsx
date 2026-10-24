@@ -35,6 +35,9 @@ import { useLanguage } from "@/lib/i18n/LanguageContext";
 import { addBusinessDaysIsoDate } from "@/lib/skyddsrond/business-days";
 import { useIncidentStore } from "@/lib/store/incident-store";
 import { cn } from "@/lib/utils";
+import { AssignPanel } from "@/components/roles/assign-panel";
+import { PeopleLine } from "@/components/roles/report-card";
+import { can } from "@/lib/auth/permissions";
 import { panelClass, severityClass, statusClass } from "@/lib/tones";
 import { incidentCategories, type Incident, type IncidentStatus, type Profile, type RiskCategory, type Severity } from "@/lib/types";
 
@@ -56,7 +59,7 @@ export function IncidentDetailDialog({
 }
 
 function IncidentDetail({ incident, onClose }: { incident: Incident; onClose: () => void }) {
-  const { sites, updateCapa, listRiskTypes, listProfiles } = useIncidentStore();
+  const { sites, updateCapa, listRiskTypes, listProfiles, role: viewerRole } = useIncidentStore();
   // People who can own an action: the company's staff (not plain workers, not the app owner).
   const [people, setPeople] = useState<Profile[]>([]);
   useEffect(() => {
@@ -281,6 +284,23 @@ function IncidentDetail({ incident, onClose }: { incident: Incident; onClose: ()
                 )}
               </div>
             )}
+            <div className="space-y-2 rounded-2xl border border-border p-3">
+              <h3 className="text-sm font-semibold">{t("flow.team")}</h3>
+              <PeopleLine incident={incident} />
+              {incident.assignment?.investigationRequired && (
+                <p className="text-xs">
+                  {t("flow.investigationRequired")}: <strong>{t(`flow.st_${incident.assignment.investigationStatus}`)}</strong>
+                  {incident.assignment.rootCause ? ` · ${incident.assignment.rootCause}` : ""}
+                </p>
+              )}
+              {incident.assignment?.followUpStatus && (
+                <p className="text-xs">
+                  {t("flow.followUp")}: <strong>{t(`flow.fu_${incident.assignment.followUpStatus}`)}</strong>
+                  {incident.assignment.followUpNote ? ` · ${incident.assignment.followUpNote}` : ""}
+                </p>
+              )}
+              {can(viewerRole, "incident.assign") && <AssignPanel incident={incident} includeActionOwner={false} />}
+            </div>
             {incident.outsideArea === true && (
               <p className={cn("rounded-lg border px-3 py-2 text-sm", panelClass.warning)}>
                 {t("flag.outsideAreaDetail", { m: incident.distanceM ?? 0 })}

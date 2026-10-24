@@ -7,6 +7,10 @@ import {
   ClipboardListIcon,
   ClipboardPlusIcon,
   CloudOffIcon,
+  FlaskConicalIcon,
+  ListChecksIcon,
+  MapPinnedIcon,
+  WrenchIcon,
   KanbanSquareIcon,
   HardHatIcon,
   LayoutDashboardIcon,
@@ -34,13 +38,18 @@ const NAV: { href: string; key: string; icon: typeof ShieldCheckIcon; permission
   { href: "/", key: "nav.home", icon: ShieldCheckIcon, mobile: true },
   { href: "/report", key: "nav.report", icon: ClipboardPlusIcon, mobile: true },
   { href: "/dashboard", key: "nav.dashboard", icon: LayoutDashboardIcon, permission: "dashboard.view", mobile: true },
+  { href: "/admin/dashboard", key: "nav.adminDashboard", icon: LayoutDashboardIcon, permission: "admin.dashboard", mobile: true },
+  { href: "/dashboard/area", key: "nav.area", icon: MapPinnedIcon, permission: "area.view", mobile: true },
+  { href: "/dashboard/my-actions", key: "nav.myActions", icon: WrenchIcon, permission: "actions.work", mobile: true },
+  { href: "/dashboard/investigations", key: "nav.investigations", icon: FlaskConicalIcon, permission: "investigations.work", mobile: false },
+  { href: "/dashboard/follow-ups", key: "nav.followUps", icon: ListChecksIcon, permission: "followups.review", mobile: false },
   { href: "/board", key: "nav.board", icon: KanbanSquareIcon, permission: "dashboard.view", mobile: false },
   { href: "/tasks", key: "home.tasks", icon: ClipboardListIcon, permission: "tasks.view", mobile: true },
   { href: "/reports", key: "home.reports", icon: LineChartIcon, permission: "reports.view", mobile: true },
   { href: "/audits", key: "home.audits", icon: ClipboardCheckIcon, permission: "audits.conduct", mobile: false },
   { href: "/people", key: "home.people", icon: UsersIcon, permission: "people.manage", mobile: false },
   { href: "/settings", key: "home.settings", icon: SettingsIcon, permission: "settings.manage", mobile: false },
-  { href: "/projects", key: "home.projects", icon: QrCodeIcon, permission: "projects.manage", mobile: false },
+  { href: "/super-admin", key: "home.projects", icon: QrCodeIcon, permission: "projects.manage", mobile: false },
 ];
 
 export function AppShell({
@@ -63,7 +72,12 @@ export function AppShell({
   // A worker who came in through a QR code sees the report form (or the tracking page) and nothing else.
   const sealed = !signedIn && (pathname.startsWith("/report") || pathname.startsWith("/track"));
   // Signed-in roles see their own pages; everyone else sees the public tabs.
-  const nav = sealed ? [] : NAV.filter((item) => !item.permission || (signedIn && can(role, item.permission)));
+  // The manager's overview replaces the plain dashboard in the menu.
+  const nav = sealed
+    ? []
+    : NAV.filter((item) => !item.permission || (signedIn && can(role, item.permission))).filter(
+        (item) => !(item.href === "/dashboard" && can(role, "admin.dashboard"))
+      );
   const mobileNav = nav.filter((item) => item.mobile);
 
   async function handleSignOut() {
@@ -203,7 +217,7 @@ function pageHeading(pathname: string, t: (key: string) => string) {
   if (pathname.startsWith("/skyddsrond")) {
     return { eyebrow: t("roles.samOfficerEyebrow"), title: t("header.skyddsrondTitle") };
   }
-  if (pathname.startsWith("/dashboard")) {
+  if (pathname === "/dashboard" || pathname.startsWith("/admin/dashboard")) {
     return { eyebrow: t("roles.officerEyebrow"), title: t("header.dashboardTitle") };
   }
   // /tasks, /reports and /people render their own heading.

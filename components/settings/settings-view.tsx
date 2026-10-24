@@ -17,7 +17,7 @@ import { useLanguage } from "@/lib/i18n/LanguageContext";
 import { useIncidentStore } from "@/lib/store/incident-store";
 import { panelClass } from "@/lib/tones";
 import { cn } from "@/lib/utils";
-import type { Organization, Profile, ReportKey, RiskType, Subcontractor } from "@/lib/types";
+import type { AreaResponsible, Organization, Profile, ReportKey, RiskType, Subcontractor } from "@/lib/types";
 
 function errorText(caught: unknown, fallback: string) {
   return (caught as { message?: string })?.message ?? fallback;
@@ -37,6 +37,8 @@ export function SettingsView() {
     listSubcontractors,
     listReportKeys,
     rotateReportKey,
+    listAreaResponsibles,
+    setAreaResponsible,
     createSubcontractor,
     removeSubcontractor,
     createRiskType,
@@ -55,6 +57,7 @@ export function SettingsView() {
   const [subcontractors, setSubcontractors] = useState<Subcontractor[]>([]);
   const [newSub, setNewSub] = useState("");
   const [keys, setKeys] = useState<ReportKey[]>([]);
+  const [areaOwners, setAreaOwners] = useState<AreaResponsible[]>([]);
   const origin = typeof window === "undefined" ? "" : window.location.origin;
   const [newSite, setNewSite] = useState({ name: "", city: "" });
   const [newRisk, setNewRisk] = useState("");
@@ -77,6 +80,19 @@ export function SettingsView() {
       cancelled = true;
     };
   }, [allowed, listOrganizations]);
+
+  useEffect(() => {
+    if (!allowed || !organizationId) return;
+    let cancelled = false;
+    listAreaResponsibles()
+      .then((rows) => {
+        if (!cancelled) setAreaOwners(rows);
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, [allowed, organizationId, listAreaResponsibles]);
 
   // The QR keys (a new place gets its key from the database, so reload when the list of places changes).
   useEffect(() => {
@@ -133,6 +149,16 @@ export function SettingsView() {
   async function rotate(scope: { siteId?: string | null; organizationId?: string | null }) {
     await rotateReportKey(scope);
     setKeys(await listReportKeys());
+  }
+
+  async function chooseAreaResponsible(locationId: string, profileId: string) {
+    try {
+      await setAreaResponsible(locationId, profileId || null);
+      setAreaOwners((current) => [...current.filter((item) => item.locationId !== locationId), ...(profileId ? [{ locationId, profileId }] : [])]);
+      toast.success(t("settings.saved"));
+    } catch (caught) {
+      toast.error(errorText(caught, t("toast.capaFailed")));
+    }
   }
 
   async function addSubcontractor() {
@@ -245,6 +271,37 @@ export function SettingsView() {
                 ))}
                 {site.locations.length === 0 && <span className="text-xs text-muted-foreground">{t("settings.noAreas")}</span>}
               </div>
+              {site.locations.length > 0 && (
+                <details className="mt-2 rounded-xl border border-border bg-background/60 px-3 py-2">
+                  <summary className="flex min-h-10 cursor-pointer items-center gap-2 text-sm font-medium">
+                    <UsersIcon className="size-4" />
+                    {t("settings.areaResponsibles")}
+                  </summary>
+                  <p className="pt-2 text-xs text-muted-foreground">{t("settings.areaResponsiblesHint")}</p>
+                  <ul className="space-y-2 pt-2">
+                    {site.locations.map((location) => (
+                      <li key={location.id} className="grid items-center gap-2 sm:grid-cols-[1fr_16rem]">
+                        <span className="text-sm">{location.name}</span>
+                        <select
+                          aria-label={`${t("settings.areaResponsibles")}: ${location.name}`}
+                          value={areaOwners.find((item) => item.locationId === location.id)?.profileId ?? ""}
+                          onChange={(event) => void chooseAreaResponsible(location.id, event.target.value)}
+                          className="h-11 w-full rounded-lg border border-border bg-background px-3 text-sm"
+                        >
+                          <option value="">{t("flow.notAssigned")}</option>
+                          {people
+                            .filter((person) => person.active && ["area_responsible", "foreman", "safety_officer"].includes(person.role))
+                            .map((person) => (
+                              <option key={person.id} value={person.id}>
+                                {person.fullName} · {t(`roleNames.${person.role}`)}
+                              </option>
+                            ))}
+                        </select>
+                      </li>
+                    ))}
+                  </ul>
+                </details>
+              )}
               <div className="mt-2 flex gap-2">
                 <Input
                   value={newArea[site.id] ?? ""}

@@ -7,14 +7,21 @@ import type { Role } from "@/lib/types";
 export function landingFor(role: Role | null | undefined): string {
   switch (role) {
     case "super_admin":
-      return "/projects";
+      return "/super-admin";
     case "hse_manager":
     case "admin":
+      return "/admin/dashboard";
     case "safety_officer":
     case "foreman":
       return "/dashboard";
+    case "area_responsible":
+      return "/dashboard/area";
     case "action_owner":
-      return "/tasks";
+      return "/dashboard/my-actions";
+    case "investigator":
+      return "/dashboard/investigations";
+    case "follow_up":
+      return "/dashboard/follow-ups";
     default:
       return "/";
   }

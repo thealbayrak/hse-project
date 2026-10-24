@@ -52,10 +52,13 @@ describe("who reports", () => {
 
 describe("landing page by role", () => {
   it("sends each role to the page that fits", () => {
-    expect(landingFor("super_admin")).toBe("/projects");
-    expect(landingFor("hse_manager")).toBe("/dashboard");
+    expect(landingFor("super_admin")).toBe("/super-admin");
+    expect(landingFor("hse_manager")).toBe("/admin/dashboard");
     expect(landingFor("safety_officer")).toBe("/dashboard");
-    expect(landingFor("action_owner")).toBe("/tasks");
+    expect(landingFor("area_responsible")).toBe("/dashboard/area");
+    expect(landingFor("action_owner")).toBe("/dashboard/my-actions");
+    expect(landingFor("investigator")).toBe("/dashboard/investigations");
+    expect(landingFor("follow_up")).toBe("/dashboard/follow-ups");
     expect(landingFor("worker")).toBe("/");
     expect(landingFor(null)).toBe("/");
   });

@@ -1,8 +1,16 @@
 import type { CreateStaffInput, Role } from "@/lib/types";
 
 /** Roles a company manager may hand out; managers themselves are appointed by the owner. */
-export const MANAGER_ASSIGNABLE_ROLES: Role[] = ["worker", "foreman", "action_owner", "safety_officer"];
-export const OWNER_ASSIGNABLE_ROLES: Role[] = ["worker", "foreman", "action_owner", "safety_officer", "hse_manager", "admin", "super_admin"];
+export const MANAGER_ASSIGNABLE_ROLES: Role[] = [
+  "worker",
+  "foreman",
+  "area_responsible",
+  "action_owner",
+  "investigator",
+  "follow_up",
+  "safety_officer",
+];
+export const OWNER_ASSIGNABLE_ROLES: Role[] = [...MANAGER_ASSIGNABLE_ROLES, "hse_manager", "admin", "super_admin"];
 
 export function assignableRoles(callerRole: Role | null | undefined): Role[] {
   if (callerRole === "super_admin") return OWNER_ASSIGNABLE_ROLES;

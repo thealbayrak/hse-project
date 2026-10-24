@@ -1,4 +1,7 @@
 import type {
+  AreaResponsible,
+  AssignIncidentInput,
+  SaveInvestigationInput,
   Audit,
   MembershipRequest,
   MembershipRequestInput,
@@ -59,6 +62,17 @@ export interface IncidentRepository {
   getIncident(id: string): Promise<Incident | null>;
   createIncident(input: CreateIncidentInput): Promise<Incident>;
   updateCapa(incidentId: string, capa: UpdateCapaInput): Promise<Incident>;
+  /** Puts the action owner, investigator and follow-up person on a report (area responsible or manager). */
+  assignIncident(input: AssignIncidentInput): Promise<Incident>;
+  /** The investigator's root-cause analysis. */
+  saveInvestigation(input: SaveInvestigationInput): Promise<Incident>;
+  /** The follow-up person approves a finished action or sends it back with a reason. */
+  verifyFollowUp(input: { incidentId: string; approved: boolean; note: string }): Promise<Incident>;
+  /** Photos the action owner attaches as proof that it was fixed. */
+  addResolutionProof(incidentId: string, files: File[]): Promise<Incident>;
+  listAreaResponsibles(): Promise<AreaResponsible[]>;
+  /** Names who is responsible for an area; null removes the responsible. */
+  setAreaResponsible(locationId: string, profileId: string | null): Promise<void>;
   /** Kanban move: status only, nothing else changes. */
   updateStatus(incidentId: string, status: IncidentStatus): Promise<Incident>;
   saveIncidentAnalysis(incidentId: string, analysis: IncidentAnalysis, language: string): Promise<Incident>;

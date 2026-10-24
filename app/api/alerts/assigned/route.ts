@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { Resend } from "resend";
-import { buildAssignmentEmail } from "@/lib/alerts/assignment-email";
+import { buildAssignmentEmail, type AssignmentRole } from "@/lib/alerts/assignment-email";
 import { isLocale, type Locale } from "@/lib/i18n/translations";
 import { isSupabaseConfigured } from "@/lib/supabase/env";
 import { mapIncidentType, mapSeverity } from "@/lib/supabase/mappers";
@@ -11,6 +11,7 @@ export const runtime = "nodejs";
 interface Body {
   incidentId?: string;
   assigneeId?: string;
+  role?: string;
   dueDate?: string | null;
   note?: string | null;
   language?: string;
@@ -70,10 +71,13 @@ export async function POST(request: Request) {
   const appUrl =
     process.env.NEXT_PUBLIC_APP_URL ||
     (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : "http://localhost:3000");
-  const dashboardUrl = `${appUrl.replace(/\/$/, "")}/dashboard?incidentId=${encodeURIComponent(body.incidentId)}`;
+  const role: AssignmentRole = body.role === "investigator" || body.role === "follow_up" ? body.role : "action_owner";
+  const page = role === "investigator" ? "/dashboard/investigations" : role === "follow_up" ? "/dashboard/follow-ups" : "/dashboard/my-actions";
+  const dashboardUrl = `${appUrl.replace(/\/$/, "")}${page}?incidentId=${encodeURIComponent(body.incidentId)}`;
   const assignedBy = me.data && typeof me.data === "object" && "full_name" in me.data ? String(me.data.full_name ?? "") || null : null;
 
   const message = buildAssignmentEmail({
+    role,
     incident: {
       reference: row.reference,
       type: mapIncidentType(row.type),

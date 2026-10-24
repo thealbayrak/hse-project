@@ -7,6 +7,10 @@ import {
   ClipboardListIcon,
   ClipboardPlusIcon,
   EyeOffIcon,
+  FlaskConicalIcon,
+  ListChecksIcon,
+  MapPinnedIcon,
+  WrenchIcon,
   KanbanSquareIcon,
   LayoutDashboardIcon,
   LineChartIcon,
@@ -30,22 +34,29 @@ import { cn } from "@/lib/utils";
 
 const STAFF_LINKS: { href: string; permission: Permission; titleKey: string; hintKey: string; icon: typeof LayoutDashboardIcon }[] = [
   { href: "/dashboard", permission: "dashboard.view", titleKey: "home.dashboard", hintKey: "home.dashboardHint", icon: LayoutDashboardIcon },
+  { href: "/admin/dashboard", permission: "admin.dashboard", titleKey: "nav.adminDashboard", hintKey: "flow.homeAdminHint", icon: LayoutDashboardIcon },
+  { href: "/dashboard/area", permission: "area.view", titleKey: "nav.area", hintKey: "flow.homeAreaHint", icon: MapPinnedIcon },
+  { href: "/dashboard/my-actions", permission: "actions.work", titleKey: "nav.myActions", hintKey: "flow.homeActionsHint", icon: WrenchIcon },
+  { href: "/dashboard/investigations", permission: "investigations.work", titleKey: "nav.investigations", hintKey: "flow.homeInvestigationsHint", icon: FlaskConicalIcon },
+  { href: "/dashboard/follow-ups", permission: "followups.review", titleKey: "nav.followUps", hintKey: "flow.homeFollowUpsHint", icon: ListChecksIcon },
   { href: "/board", permission: "dashboard.view", titleKey: "nav.board", hintKey: "home.boardHint", icon: KanbanSquareIcon },
   { href: "/tasks", permission: "tasks.view", titleKey: "home.tasks", hintKey: "home.tasksHint", icon: ClipboardListIcon },
   { href: "/reports", permission: "reports.view", titleKey: "home.reports", hintKey: "home.reportsHint", icon: LineChartIcon },
   { href: "/audits", permission: "audits.conduct", titleKey: "home.audits", hintKey: "home.auditsHint", icon: ClipboardCheckIcon },
   { href: "/people", permission: "people.manage", titleKey: "home.people", hintKey: "home.peopleHint", icon: UsersIcon },
   { href: "/settings", permission: "settings.manage", titleKey: "home.settings", hintKey: "home.settingsHint", icon: SettingsIcon },
-  { href: "/projects", permission: "projects.manage", titleKey: "home.projects", hintKey: "home.projectsHint", icon: QrCodeIcon },
+  { href: "/super-admin", permission: "projects.manage", titleKey: "home.projects", hintKey: "home.projectsHint", icon: QrCodeIcon },
 ];
 
 export function HomeView() {
   const { t } = useLanguage();
-  const { enabled: authEnabled, session, email } = useAuth();
+  const { enabled: authEnabled, email } = useAuth();
   const { sites, profile, profileError, role, listTasks, isSignedIn } = useIncidentStore();
   const organisations = [...new Set(sites.map((site) => site.organizationName).filter(Boolean))] as string[];
   const signedIn = isSignedIn;
-  const staffLinks = STAFF_LINKS.filter((link) => can(role, link.permission));
+  const staffLinks = STAFF_LINKS.filter((link) => can(role, link.permission)).filter(
+    (link) => !(link.href === "/dashboard" && can(role, "admin.dashboard"))
+  );
   const [myOpenTasks, setMyOpenTasks] = useState<number | null>(null);
 
   useEffect(() => {

@@ -1,5 +1,6 @@
 import type {
   ActionRow,
+  AssignmentRow,
   AttachmentRow,
   AuditRow,
   IncidentRow,
@@ -16,6 +17,7 @@ import type {
   TemplateRow,
 } from "@/lib/supabase/database.types";
 import type {
+  Assignment,
   Audit,
   AuditItemResult,
   AuditStatus,
@@ -53,6 +55,7 @@ export interface IncidentQueryRow extends IncidentRow {
   sites?: Nested<Pick<SiteRow, "id" | "name" | "city">>;
   site_locations?: Nested<Pick<LocationRow, "id" | "name">>;
   actions?: Nested<ActionRow>;
+  assignments?: Nested<AssignmentRow>;
   incident_attachments?: Nested<AttachmentRow>;
 }
 
@@ -177,6 +180,32 @@ export function mapCapa(row: ActionRow | null): CapaAction | null {
   };
 }
 
+export function mapAssignment(row: AssignmentRow | null | undefined): Assignment | null {
+  if (!row) return null;
+  const investigation = row.investigation_status === "done" || row.investigation_status === "in-progress" ? row.investigation_status : "open";
+  const followUp = row.follow_up_status === "pending" || row.follow_up_status === "approved" || row.follow_up_status === "rejected" ? row.follow_up_status : null;
+  return {
+    areaResponsibleId: row.area_responsible_id,
+    areaResponsibleName: row.area_responsible_name,
+    actionOwnerId: row.action_owner_id,
+    actionOwnerName: row.action_owner_name,
+    investigatorId: row.investigator_id,
+    investigatorName: row.investigator_name,
+    followUpId: row.follow_up_id,
+    followUpName: row.follow_up_name,
+    investigationRequired: Boolean(row.investigation_required),
+    investigationDueDate: row.investigation_due_date,
+    investigationStatus: investigation,
+    rootCause: row.root_cause,
+    investigationNotes: row.investigation_notes,
+    investigationCompletedAt: row.investigation_completed_at,
+    followUpStatus: followUp,
+    followUpNote: row.follow_up_note,
+    verifiedAt: row.verified_at,
+    managerLocked: Boolean(row.manager_locked),
+  };
+}
+
 function latestFirst(a: ActionRow, b: ActionRow) {
   return +new Date(b.updated_at ?? b.created_at ?? 0) - +new Date(a.updated_at ?? a.created_at ?? 0);
 }
@@ -210,10 +239,15 @@ export function mapIncident(row: IncidentQueryRow, mediaUrl: MediaUrlResolver = 
     severity: mapSeverity(row.severity),
     description: row.description,
     mediaUrls: attachments
-      .filter((item) => item.kind !== "voice")
+      .filter((item) => item.kind !== "voice" && item.kind !== "proof")
       .map((item) => mediaUrl(item.storage_path))
       .filter((url): url is string => Boolean(url)),
     audioUrl: voice ? mediaUrl(voice.storage_path) : null,
+    proofUrls: attachments
+      .filter((item) => item.kind === "proof")
+      .map((item) => mediaUrl(item.storage_path))
+      .filter((url): url is string => Boolean(url)),
+    assignment: mapAssignment(unwrapOne(row.assignments)),
     originalLanguage: row.original_language ?? null,
     originalText: row.original_text ?? null,
     summarySv: row.summary_sv ?? null,
@@ -268,6 +302,9 @@ export function mapSite(row: SiteQueryRow): Site {
 
 export function mapRole(value: string): Role {
   const normalized = value.trim().toLowerCase().replaceAll("-", "_").replaceAll(" ", "_");
+  if (normalized === "area_responsible" || normalized === "områdesansvarig" || normalized === "omradesansvarig" || normalized === "alan_sorumlusu") return "area_responsible";
+  if (normalized === "investigator" || normalized === "utredare" || normalized === "arastirmaci" || normalized === "araştırmacı" || normalized === "kaza_arastirmaci") return "investigator";
+  if (normalized === "follow_up" || normalized === "followup" || normalized === "uppföljare" || normalized === "uppfoljare" || normalized === "takip_sorumlusu") return "follow_up";
   if (normalized === "action_owner" || normalized === "aksiyon_sorumlusu" || normalized === "åtgärdsansvarig" || normalized === "atgardsansvarig") return "action_owner";
   if (normalized === "foreman" || normalized === "supervisor" || normalized === "arbetsledare" || normalized === "şef" || normalized === "sef") return "foreman";
   if (normalized === "safety_officer" || normalized === "skyddsombud" || normalized === "officer" || normalized === "isg_uzmani" || normalized === "isg_uzmanı") return "safety_officer";
