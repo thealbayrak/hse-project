@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { buildAssignmentEmail } from "@/lib/alerts/assignment-email";
+import { buildWorkEmail } from "@/lib/alerts/work-email";
 import { assignableRoles } from "@/lib/admin/staff-rules";
 import { can } from "@/lib/auth/permissions";
 import { createMockRepository } from "@/lib/data/mock-repository";
@@ -194,8 +195,10 @@ describe("assignment e-mail", () => {
     const investigator = buildAssignmentEmail({ ...base, language: "en", role: "investigator" });
     expect(investigator.subject).toBe("You are asked to investigate · SS-2026-0042");
     expect(investigator.text).toContain("root cause");
-    const followUp = buildAssignmentEmail({ ...base, language: "en", role: "follow_up" });
-    expect(followUp.subject).toContain("waiting for your check");
+    const named = buildAssignmentEmail({ ...base, language: "en", role: "follow_up" });
+    expect(named.subject).toBe("You will check a fix · SS-2026-0042");
+    const ready = buildAssignmentEmail({ ...base, language: "en", role: "follow_up_ready" });
+    expect(ready.subject).toContain("waiting for your check");
     expect(buildAssignmentEmail({ ...base, language: "tr", role: "investigator" }).subject).toContain("Araştırmanız");
   });
 });
@@ -242,5 +245,26 @@ describe("report keys (demo repository)", () => {
     expect(fresh).not.toBe(siteKey!.key);
     expect(await repo.resolveReportKey(siteKey!.key)).toBeNull();
     expect(await repo.resolveReportKey(fresh)).toMatchObject({ siteId: siteKey!.siteId });
+  });
+});
+
+describe("work e-mail (tasks, checklists, areas)", () => {
+  const base = { recipientName: "Maria", assignedBy: "Anna", detail: "Go through every <b>board</b>.", place: "Kvillebäcken", dueDate: "2026-11-03", priority: "High", language: "en" as const, url: "https://app.example/tasks" };
+
+  it("words each kind differently and escapes HTML", () => {
+    const task = buildWorkEmail({ ...base, kind: "task", title: "Check the boards" });
+    expect(task.subject).toBe("New task for you: Check the boards");
+    expect(task.text).toContain("Anna gave you a task.");
+    expect(task.text).toContain("High");
+    expect(task.html).toContain("Go through every &lt;b&gt;board&lt;/b&gt;.");
+    expect(buildWorkEmail({ ...base, kind: "audit", title: "Gas cylinder check" }).subject).toContain("checklist round");
+    const area = buildWorkEmail({ ...base, kind: "area", title: "Roof Level 4", detail: null, priority: null, dueDate: null });
+    expect(area.subject).toBe("You are now responsible for Roof Level 4");
+    expect(area.text).not.toContain("Priority");
+  });
+
+  it("is written in the recipient language", () => {
+    expect(buildWorkEmail({ ...base, kind: "task", title: "X", language: "sv" }).subject).toBe("Ny uppgift till dig: X");
+    expect(buildWorkEmail({ ...base, kind: "task", title: "X", language: "tr" }).subject).toBe("Size yeni bir görev verildi: X");
   });
 });

@@ -11,7 +11,7 @@ import {
   useSyncExternalStore,
 } from "react";
 import { toast } from "sonner";
-import { notifyAssignment } from "@/lib/alerts/assignment";
+import { notifyAssignment, notifyWork } from "@/lib/alerts/assignment";
 import { dispatchCriticalIncidentAlert } from "@/lib/alerts/critical-incident";
 import { useAuth } from "@/lib/auth/auth-context";
 import { DEFAULT_SIGNED_IN_ROLE } from "@/lib/auth/permissions";
@@ -460,7 +460,7 @@ export function IncidentProvider({ children }: { children: React.ReactNode }) {
       // The action is finished: the person who checks it is asked to.
       const followUpId = updated.assignment?.followUpId;
       if (followUpId && capa.status === "resolved" && before?.status !== "resolved") {
-        void notifyAssignment({ incidentId, assigneeId: followUpId, role: "follow_up", dueDate: null, note: capa.notes, language: locale });
+        void notifyAssignment({ incidentId, assigneeId: followUpId, role: "follow_up_ready", dueDate: null, note: capa.notes, language: locale });
       }
       return updated;
     },
@@ -487,9 +487,10 @@ export function IncidentProvider({ children }: { children: React.ReactNode }) {
     async (input: AssignIncidentInput) => {
       const before = incidentsRef.current.find((item) => item.id === input.incidentId)?.assignment ?? null;
       const updated = replaceInList(await repository.assignIncident(input));
-      const toTell: { id: string | null; was: string | null | undefined; role: "action_owner" | "investigator"; due: string | null }[] = [
+      const toTell: { id: string | null; was: string | null | undefined; role: "action_owner" | "investigator" | "follow_up"; due: string | null }[] = [
         { id: input.actionOwnerId, was: before?.actionOwnerId, role: "action_owner", due: input.actionDueDate },
         { id: input.investigatorId, was: before?.investigatorId, role: "investigator", due: input.investigationDueDate },
+        { id: input.followUpId, was: before?.followUpId, role: "follow_up", due: null },
       ];
       for (const item of toTell) {
         if (!item.id || item.id === item.was) continue;
@@ -513,7 +514,14 @@ export function IncidentProvider({ children }: { children: React.ReactNode }) {
     [repository, replaceInList]
   );
   const listAreaResponsibles = useCallback(() => repository.listAreaResponsibles(), [repository]);
-  const setAreaResponsible = useCallback((locationId: string, profileId: string | null) => repository.setAreaResponsible(locationId, profileId), [repository]);
+  // The person who is made responsible for an area is told straight away.
+  const setAreaResponsible = useCallback(
+    async (locationId: string, profileId: string | null) => {
+      await repository.setAreaResponsible(locationId, profileId);
+      if (profileId) void notifyWork({ kind: "area", id: locationId, assigneeId: profileId, language: locale }).then(toastAssignment);
+    },
+    [repository, locale, toastAssignment]
+  );
 
   const trackIncident = useCallback((code: string) => repository.trackIncident(code), [repository]);
 
@@ -552,11 +560,23 @@ export function IncidentProvider({ children }: { children: React.ReactNode }) {
   );
   const removeProfile = useCallback((id: string) => repository.removeProfile(id), [repository]);
   const listTasks = useCallback(() => repository.listTasks(), [repository]);
+  // Whoever is given a task or a checklist round is told by e-mail at once.
   const createTask = useCallback(
-    (input: CreateTaskInput) => repository.createTask(input, profile?.id ?? null),
-    [repository, profile]
+    async (input: CreateTaskInput) => {
+      const created = await repository.createTask(input, profile?.id ?? null);
+      if (created.assigneeId) void notifyWork({ kind: "task", id: created.id, assigneeId: created.assigneeId, language: locale }).then(toastAssignment);
+      return created;
+    },
+    [repository, profile, locale, toastAssignment]
   );
-  const updateTask = useCallback((id: string, patch: UpdateTaskInput) => repository.updateTask(id, patch), [repository]);
+  const updateTask = useCallback(
+    async (id: string, patch: UpdateTaskInput) => {
+      const updated = await repository.updateTask(id, patch);
+      if (patch.assigneeId && updated.assigneeId === patch.assigneeId) void notifyWork({ kind: "task", id, assigneeId: patch.assigneeId, language: locale }).then(toastAssignment);
+      return updated;
+    },
+    [repository, locale, toastAssignment]
+  );
 
   // Companies and settings
   const reloadSites = useCallback(async () => {
@@ -631,17 +651,22 @@ export function IncidentProvider({ children }: { children: React.ReactNode }) {
   );
   const listAudits = useCallback(() => repository.listAudits(), [repository]);
   const createAudit = useCallback(
-    (input: CreateAuditInput) => repository.createAudit(input, profile?.id ?? null),
-    [repository, profile]
+    async (input: CreateAuditInput) => {
+      const created = await repository.createAudit(input, profile?.id ?? null);
+      if (created.assigneeId) void notifyWork({ kind: "audit", id: created.id, assigneeId: created.assigneeId, language: locale }).then(toastAssignment);
+      return created;
+    },
+    [repository, profile, locale, toastAssignment]
   );
   const updateAudit = useCallback(
     async (id: string, patch: UpdateAuditInput) => {
       const updated = await repository.updateAudit(id, patch);
+      if (patch.assigneeId && updated.assigneeId === patch.assigneeId) void notifyWork({ kind: "audit", id, assigneeId: patch.assigneeId, language: locale }).then(toastAssignment);
       // Submitting may have raised hazards; the feed should show them.
       if (patch.status === "submitted") await refresh().catch(() => undefined);
       return updated;
     },
-    [repository, refresh]
+    [repository, refresh, locale, toastAssignment]
   );
 
   const listContacts = useCallback(() => repository.listContacts(), [repository]);

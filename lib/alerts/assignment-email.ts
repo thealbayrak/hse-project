@@ -13,7 +13,7 @@ export interface AssignedIncident {
   locationName: string;
 }
 
-function escapeHtml(value: string) {
+export function escapeHtml(value: string) {
   return value
     .replaceAll("&", "&amp;")
     .replaceAll("<", "&lt;")
@@ -23,13 +23,14 @@ function escapeHtml(value: string) {
 }
 
 /** "2026-11-03" → readable date in the recipient's language; anything else is shown as given. */
-function formatDue(value: string | null, language: Locale) {
+export function formatDue(value: string | null, language: Locale) {
   if (!value || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return value ?? "";
   const tag = language === "sv" ? "sv-SE" : language === "tr" ? "tr-TR" : "en-GB";
   return new Intl.DateTimeFormat(tag, { dateStyle: "long", timeZone: "UTC" }).format(new Date(`${value}T12:00:00Z`));
 }
 
-export type AssignmentRole = "action_owner" | "investigator" | "follow_up";
+/** follow_up: just named to check the fix later. follow_up_ready: the repair is finished and waits for the check. */
+export type AssignmentRole = "action_owner" | "investigator" | "follow_up" | "follow_up_ready";
 
 /** The e-mail a person gets when they are put on a report: to fix it, to investigate it, or to check the fix. */
 export function buildAssignmentEmail(input: {
@@ -44,7 +45,7 @@ export function buildAssignmentEmail(input: {
 }) {
   const { incident, recipientName, assignedBy, dueDate, note, language, dashboardUrl, role = "action_owner" } = input;
   const t = (key: string, vars?: Record<string, string | number>) => translate(language, key, vars);
-  const suffix = role === "investigator" ? "Investigator" : role === "follow_up" ? "FollowUp" : "";
+  const suffix = role === "investigator" ? "Investigator" : role === "follow_up" ? "FollowUp" : role === "follow_up_ready" ? "FollowUpReady" : "";
   const type = typeLabel(incident.type, language, incident.typeNote);
   const severity = severityLabel(incident.severity, language);
   const due = formatDue(dueDate, language);

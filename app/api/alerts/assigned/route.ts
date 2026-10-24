@@ -71,8 +71,18 @@ export async function POST(request: Request) {
   const appUrl =
     process.env.NEXT_PUBLIC_APP_URL ||
     (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : "http://localhost:3000");
-  const role: AssignmentRole = body.role === "investigator" || body.role === "follow_up" ? body.role : "action_owner";
-  const page = role === "investigator" ? "/dashboard/investigations" : role === "follow_up" ? "/dashboard/follow-ups" : "/dashboard/my-actions";
+  const role: AssignmentRole =
+    body.role === "investigator" || body.role === "follow_up" || body.role === "follow_up_ready" ? body.role : "action_owner";
+  const page = role === "investigator" ? "/dashboard/investigations" : role === "action_owner" ? "/dashboard/my-actions" : "/dashboard/follow-ups";
+
+  // The person must really be on the report in that role: this route cannot be used to mail anyone else.
+  const onReport = await supabase
+    .from("assignments")
+    .select("action_owner_id, investigator_id, follow_up_id")
+    .eq("incident_id", body.incidentId)
+    .maybeSingle();
+  const named = role === "investigator" ? onReport.data?.investigator_id : role === "action_owner" ? onReport.data?.action_owner_id : onReport.data?.follow_up_id;
+  if (onReport.error || named !== body.assigneeId) return reply({ ok: false, error: "That person is not on this report." }, 403);
   const dashboardUrl = `${appUrl.replace(/\/$/, "")}${page}?incidentId=${encodeURIComponent(body.incidentId)}`;
   const assignedBy = me.data && typeof me.data === "object" && "full_name" in me.data ? String(me.data.full_name ?? "") || null : null;
 
